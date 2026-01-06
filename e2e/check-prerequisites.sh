@@ -17,8 +17,8 @@ else
 fi
 
 # Check frontend
-echo -n "Frontend (localhost:5173): "
-if curl -s http://localhost:5173 2>/dev/null | grep -q "html"; then
+echo -n "Frontend (localhost:3000): "
+if curl -s http://localhost:3000 2>/dev/null | grep -q "html"; then
     echo "[OK]"
 else
     echo "[FAIL] - Start with: npm run dev:client"

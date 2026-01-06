@@ -17,7 +17,7 @@ export const infiniteScrollTests: TestScenario[] = [
     steps: [
       {
         action: 'navigate',
-        url: 'http://localhost:5173',
+        url: 'http://localhost:3000',
         description: 'Navigate to library page',
       },
       {
@@ -64,7 +64,7 @@ export const infiniteScrollTests: TestScenario[] = [
     steps: [
       {
         action: 'navigate',
-        url: 'http://localhost:5173',
+        url: 'http://localhost:3000',
         description: 'Navigate to library page',
       },
       {
@@ -110,7 +110,7 @@ export const infiniteScrollTests: TestScenario[] = [
     steps: [
       {
         action: 'navigate',
-        url: 'http://localhost:5173',
+        url: 'http://localhost:3000',
         description: 'Navigate to library page',
       },
       {

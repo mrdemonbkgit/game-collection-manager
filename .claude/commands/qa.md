@@ -15,7 +15,7 @@ Run end-to-end tests for the game-collection app using Chrome integration.
 Before running tests, ensure:
 
 1. **Backend server** running at http://localhost:3001
-2. **Frontend dev server** running at http://localhost:5173
+2. **Frontend dev server** running at http://localhost:3000
 3. **Chrome browser** connected via `claude --chrome`
 4. **Database populated** with games (run `curl -X POST http://localhost:3001/api/sync/steam/quick` if empty)
 
@@ -51,7 +51,7 @@ First, check that both servers are running:
 curl -s http://localhost:3001/api/health
 
 # Check frontend is accessible
-curl -s http://localhost:5173 | head -1
+curl -s http://localhost:3000 | head -1
 ```
 
 If either fails, report the issue and abort:
@@ -76,7 +76,7 @@ For each scenario, execute steps sequentially using Chrome:
 
 **Navigate** (`action: 'navigate'`):
 - Use Chrome to go to the specified URL
-- Example: Navigate to http://localhost:5173
+- Example: Navigate to http://localhost:3000
 
 **Wait** (`action: 'wait'`):
 - `networkIdle`: Wait for network activity to settle

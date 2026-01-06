@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { FixedSizeList as List, ListChildComponentProps, ListOnItemsRenderedProps } from 'react-window';
+import { useInfiniteLoader } from 'react-window-infinite-loader';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { Game } from '../types/game';
 import GameCard from './GameCard';
@@ -32,30 +33,36 @@ export default function GameGrid({
   games,
   total,
   hasMore,
-  loading,
   onLoadMore,
 }: GameGridProps) {
-  // Track visible rows for load more trigger
-  const lastVisibleRowRef = useRef(0);
   const columnCountRef = useRef(1);
 
-  // Handle items rendered - trigger load more when near end
-  const handleItemsRendered = useCallback(
-    ({ visibleStopIndex }: ListOnItemsRenderedProps) => {
-      lastVisibleRowRef.current = visibleStopIndex;
+  // Check if a row is loaded
+  const isRowLoaded = useCallback(
+    (rowIndex: number) => {
+      const columnCount = columnCountRef.current;
+      const startIndex = rowIndex * columnCount;
+      return startIndex < games.length || startIndex >= total;
     },
-    []
+    [games.length, total]
   );
 
-  // Use effect to check if we need to load more (avoids setState during render)
-  useEffect(() => {
-    if (!hasMore || loading) return;
-
-    const lastLoadedRow = Math.ceil(games.length / columnCountRef.current) - 1;
-    if (lastVisibleRowRef.current >= lastLoadedRow - 5) {
+  // Load more rows - called by infinite loader, not during render
+  const loadMoreRows = useCallback(() => {
+    if (hasMore) {
       onLoadMore();
     }
-  }, [games.length, hasMore, loading, onLoadMore]);
+    return Promise.resolve();
+  }, [hasMore, onLoadMore]);
+
+  // Use the infinite loader hook
+  const rowCount = Math.ceil(total / Math.max(1, columnCountRef.current));
+  const onRowsRendered = useInfiniteLoader({
+    isRowLoaded,
+    loadMoreRows,
+    rowCount,
+    threshold: 5,
+  });
 
   // Row renderer - creates a flex row of GameCards
   const Row = useCallback(
@@ -107,6 +114,14 @@ export default function GameGrid({
     [games, total]
   );
 
+  // Convert onRowsRendered to onItemsRendered format
+  const handleItemsRendered = useCallback(
+    ({ visibleStartIndex, visibleStopIndex }: ListOnItemsRenderedProps) => {
+      onRowsRendered({ startIndex: visibleStartIndex, stopIndex: visibleStopIndex });
+    },
+    [onRowsRendered]
+  );
+
   return (
     <div data-testid="game-grid" className="flex-1 w-full">
       <AutoSizer
@@ -120,15 +135,15 @@ export default function GameGrid({
           const availableWidth = width - 32; // 16px padding each side
           const columnCount = Math.max(1, Math.floor((availableWidth + GAP) / (CARD_WIDTH + GAP)));
           columnCountRef.current = columnCount;
-          const rowCount = Math.ceil(total / columnCount);
+          const currentRowCount = Math.ceil(total / columnCount);
           const itemData = createItemData(columnCount);
 
           return (
             <List
-              key={columnCount} // Re-key on column count change to force recalculation
+              key={columnCount}
               height={height}
               width={width}
-              itemCount={rowCount}
+              itemCount={currentRowCount}
               itemSize={ROW_HEIGHT}
               itemData={itemData}
               overscanCount={5}
