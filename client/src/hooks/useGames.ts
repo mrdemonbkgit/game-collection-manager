@@ -33,6 +33,18 @@ export function useGames(
   useStateLogger('useGames', 'page', page);
   useStateLogger('useGames', 'gamesLength', games.length);
 
+  // Stabilize params by comparing JSON - prevents infinite loop when caller
+  // passes inline object like { sortBy: 'title' } which creates new ref each render
+  const paramsRef = useRef(params);
+  const paramsJson = JSON.stringify(params);
+  const prevParamsJson = useRef(paramsJson);
+
+  if (paramsJson !== prevParamsJson.current) {
+    paramsRef.current = params;
+    prevParamsJson.current = paramsJson;
+    debug.log('info', 'useGames: params changed', params);
+  }
+
   // Refs to prevent duplicate requests
   const isLoadingMoreRef = useRef(false);
   const lastLoadTimeRef = useRef(0);
@@ -40,6 +52,7 @@ export function useGames(
   const hasMore = games.length < total;
 
   // Load games for a specific page
+  // Note: Using paramsRef.current instead of params to avoid dependency changes
   const loadGames = useCallback(
     async (pageNum: number, append: boolean) => {
       debug.logCallback('useGames', 'loadGames', [{ pageNum, append, isLoadingMore: isLoadingMoreRef.current }]);
@@ -66,7 +79,7 @@ export function useGames(
         setError(null);
 
         const result = await fetchGames({
-          ...params,
+          ...paramsRef.current, // Use ref to avoid dependency on params object
           page: pageNum,
           pageSize: PAGE_SIZE,
         });
@@ -88,7 +101,7 @@ export function useGames(
         debug.log('info', 'useGames.loadGames: FINISHED');
       }
     },
-    [params]
+    [] // Empty deps - params accessed via ref
   );
 
   // Load more games (for infinite scroll)
@@ -123,13 +136,15 @@ export function useGames(
     loadGames(1, false);
   }, [loadGames]);
 
-  // Initial load
+  // Initial load and reload when params change
   useEffect(() => {
+    debug.log('info', 'useGames: Initial/params-change load triggered');
     setPage(1);
     setGames([]);
     setTotal(0);
     loadGames(1, false);
-  }, [loadGames]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paramsJson]); // Re-fetch when params actually change (by value)
 
   return { games, total, loading, error, hasMore, loadMore, refresh };
 }
