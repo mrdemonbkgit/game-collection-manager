@@ -1,6 +1,5 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import { FixedSizeList as List, ListChildComponentProps, ListOnItemsRenderedProps } from 'react-window';
-import { useInfiniteLoader } from 'react-window-infinite-loader';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { Game } from '../types/game';
 import GameCard from './GameCard';
@@ -18,6 +17,7 @@ const CARD_WIDTH = 184;
 const CARD_HEIGHT = 260;
 const GAP = 16;
 const ROW_HEIGHT = CARD_HEIGHT + GAP;
+const LOAD_THRESHOLD = 5; // Load more when within 5 rows of end
 
 // Skeleton placeholder for loading cards
 function SkeletonCard() {
@@ -33,36 +33,50 @@ export default function GameGrid({
   games,
   total,
   hasMore,
+  loading,
   onLoadMore,
 }: GameGridProps) {
+  // All values that change frequently go in refs to avoid re-render cascades
   const columnCountRef = useRef(1);
+  const loadingRef = useRef(loading);
+  const hasMoreRef = useRef(hasMore);
+  const gamesLengthRef = useRef(games.length);
+  const onLoadMoreRef = useRef(onLoadMore);
+  const lastLoadTriggerRef = useRef(0);
 
-  // Check if a row is loaded
-  const isRowLoaded = useCallback(
-    (rowIndex: number) => {
-      const columnCount = columnCountRef.current;
-      const startIndex = rowIndex * columnCount;
-      return startIndex < games.length || startIndex >= total;
-    },
-    [games.length, total]
-  );
-
-  // Load more rows - called by infinite loader, not during render
-  const loadMoreRows = useCallback(() => {
-    if (hasMore) {
-      onLoadMore();
-    }
-    return Promise.resolve();
-  }, [hasMore, onLoadMore]);
-
-  // Use the infinite loader hook
-  const rowCount = Math.ceil(total / Math.max(1, columnCountRef.current));
-  const onRowsRendered = useInfiniteLoader({
-    isRowLoaded,
-    loadMoreRows,
-    rowCount,
-    threshold: 5,
+  // Keep refs in sync with props (runs after render, no cascade)
+  useEffect(() => {
+    loadingRef.current = loading;
+    hasMoreRef.current = hasMore;
+    gamesLengthRef.current = games.length;
+    onLoadMoreRef.current = onLoadMore;
   });
+
+  // Stable callback - uses refs so no dependency changes
+  const handleItemsRendered = useCallback(
+    ({ visibleStopIndex }: ListOnItemsRenderedProps) => {
+      // Guard: don't load if already loading or no more data
+      if (loadingRef.current || !hasMoreRef.current) {
+        return;
+      }
+
+      // Throttle: prevent rapid-fire calls (200ms minimum)
+      const now = Date.now();
+      if (now - lastLoadTriggerRef.current < 200) {
+        return;
+      }
+
+      const columnCount = columnCountRef.current;
+      const loadedRowCount = Math.ceil(gamesLengthRef.current / columnCount);
+
+      // Load more when visible stop row is within threshold of loaded data
+      if (visibleStopIndex >= loadedRowCount - LOAD_THRESHOLD) {
+        lastLoadTriggerRef.current = now;
+        onLoadMoreRef.current();
+      }
+    },
+    [] // Empty deps - all values from refs, callback never changes
+  );
 
   // Row renderer - creates a flex row of GameCards
   const Row = useCallback(
@@ -108,18 +122,10 @@ export default function GameGrid({
     []
   );
 
-  // Memoized item data creator
+  // Memoized item data - only changes when games or total change
   const createItemData = useCallback(
     (columnCount: number) => ({ games, columnCount, total }),
     [games, total]
-  );
-
-  // Convert onRowsRendered to onItemsRendered format
-  const handleItemsRendered = useCallback(
-    ({ visibleStartIndex, visibleStopIndex }: ListOnItemsRenderedProps) => {
-      onRowsRendered({ startIndex: visibleStartIndex, stopIndex: visibleStopIndex });
-    },
-    [onRowsRendered]
   );
 
   return (
@@ -135,15 +141,15 @@ export default function GameGrid({
           const availableWidth = width - 32; // 16px padding each side
           const columnCount = Math.max(1, Math.floor((availableWidth + GAP) / (CARD_WIDTH + GAP)));
           columnCountRef.current = columnCount;
-          const currentRowCount = Math.ceil(total / columnCount);
+          const rowCount = Math.ceil(total / columnCount);
           const itemData = createItemData(columnCount);
 
           return (
             <List
-              key={columnCount}
+              key={columnCount} // Re-key on column count change
               height={height}
               width={width}
-              itemCount={currentRowCount}
+              itemCount={rowCount}
               itemSize={ROW_HEIGHT}
               itemData={itemData}
               overscanCount={5}

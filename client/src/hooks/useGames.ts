@@ -46,11 +46,8 @@ export function useGames(
       }
 
       try {
-        if (append) {
-          isLoadingMoreRef.current = true;
-        } else {
-          setLoading(true);
-        }
+        isLoadingMoreRef.current = true;
+        setLoading(true); // Always set loading to true for guard in GameGrid
         setError(null);
 
         const result = await fetchGames({
