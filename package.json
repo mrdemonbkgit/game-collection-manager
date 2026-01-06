@@ -23,10 +23,17 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "qa:check": "bash e2e/check-prerequisites.sh"
+    "e2e": "playwright test --project=chromium",
+    "e2e:smoke": "playwright test e2e/tests/smoke.spec.ts",
+    "e2e:grid": "playwright test e2e/tests/library-grid.spec.ts",
+    "e2e:scroll": "playwright test e2e/tests/infinite-scroll.spec.ts",
+    "e2e:ui": "playwright test --ui",
+    "e2e:report": "playwright show-report e2e/results/html-report"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "concurrently": "^8.2.2",
+    "playwright": "^1.57.0",
     "prettier": "^3.2.5"
   },
   "engines": {

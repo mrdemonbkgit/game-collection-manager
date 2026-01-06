@@ -55,6 +55,7 @@ export function useGames(
   // Note: Using paramsRef.current instead of params to avoid dependency changes
   const loadGames = useCallback(
     async (pageNum: number, append: boolean) => {
+      console.log('[useGames] loadGames called:', { pageNum, append, params: paramsRef.current });
       debug.logCallback('useGames', 'loadGames', [{ pageNum, append, isLoadingMore: isLoadingMoreRef.current }]);
 
       // Throttle check for appending only
@@ -138,13 +139,13 @@ export function useGames(
 
   // Initial load and reload when params change
   useEffect(() => {
+    console.log('[useGames] Initial load effect running, paramsJson:', paramsJson);
     debug.log('info', 'useGames: Initial/params-change load triggered');
     setPage(1);
     setGames([]);
     setTotal(0);
     loadGames(1, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramsJson]); // Re-fetch when params actually change (by value)
+  }, [paramsJson, loadGames]); // loadGames is stable (empty deps)
 
   return { games, total, loading, error, hasMore, loadMore, refresh };
 }

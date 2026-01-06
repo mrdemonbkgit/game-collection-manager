@@ -101,9 +101,17 @@ npm run dev:server          # Start server with hot reload
 npm run dev:client          # Start React dev server (Phase 2+)
 npm run dev                 # Both concurrently
 
-# Testing
+# Unit Testing
 npm test                    # Run all tests (from root)
 cd server && npm test       # Server tests only
+
+# E2E Testing (Playwright)
+npm run e2e                 # Run all E2E tests
+npm run e2e:smoke           # Run smoke tests only (critical path)
+npm run e2e:grid            # Run library grid tests
+npm run e2e:scroll          # Run infinite scroll tests
+npm run e2e:ui              # Open Playwright UI mode
+npm run e2e:report          # View HTML test report
 
 # Type checking
 npm run typecheck           # All workspaces
@@ -190,3 +198,4 @@ Build the React frontend:
 - Comprehensive test coverage
 - User has API keys ready when needed
 - No rush, quality over speed
+

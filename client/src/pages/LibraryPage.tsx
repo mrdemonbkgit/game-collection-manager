@@ -58,7 +58,7 @@ export default function LibraryPage() {
   return (
     <div className="h-full flex flex-col">
       <Header gameCount={total} />
-      <main className="flex-1 py-4 min-h-0">
+      <main className="flex-1 flex flex-col py-4 min-h-0">
         <GameGrid
           games={games}
           total={total}

@@ -1,6 +1,11 @@
-# QA Agent - E2E Test Runner
+---
+name: qa
+description: Run E2E tests for the game-collection app using Playwright. Use /qa for all tests, /qa smoke for critical path only.
+---
 
-Run end-to-end tests for the game-collection app using Chrome integration.
+# QA Agent - Playwright E2E Test Runner
+
+Run end-to-end tests for the game-collection app using Playwright.
 
 ## Usage
 
@@ -8,7 +13,6 @@ Run end-to-end tests for the game-collection app using Chrome integration.
 - `/qa smoke` - Run only smoke tests (critical path)
 - `/qa grid` - Run library grid tests
 - `/qa scroll` - Run infinite scroll tests
-- `/qa <scenario-id>` - Run specific scenario by ID
 
 ## Prerequisites
 
@@ -16,27 +20,46 @@ Before running tests, ensure:
 
 1. **Backend server** running at http://localhost:3001
 2. **Frontend dev server** running at http://localhost:3000
-3. **Chrome browser** connected via `claude --chrome`
-4. **Database populated** with games (run `curl -X POST http://localhost:3001/api/sync/steam/quick` if empty)
+3. **Database populated** with games (run `curl -X POST http://localhost:3001/api/sync/steam/quick` if empty)
 
-## Test Scenarios
+Note: Playwright can auto-start servers via `webServer` config, but for faster iteration, pre-start them.
 
-Test definitions are located in `e2e/scenarios/`:
+## Test Suites
 
-### Smoke Tests (`smoke` tag)
-- `smoke-page-load` - Verify page loads with games visible
-- `smoke-header-count` - Verify correct game count in header
-- `smoke-no-errors` - Verify no error states displayed
+Test files are located in `e2e/tests/`:
 
-### Grid Tests (`grid` tag)
-- `grid-card-display` - Verify cards show image, title, Steam badge
-- `grid-multiple-cards` - Verify multiple cards render
-- `grid-hover-state` - Verify hover effects work
+### Smoke Tests (`smoke.spec.ts`)
+- Page loads successfully
+- Displays game grid with cards
+- Header shows correct game count
+- No JavaScript errors on page load
+- No error messages displayed
+- API health check responds
+- Games API returns data
 
-### Scroll Tests (`scroll` tag)
-- `scroll-loads-more` - Verify infinite scroll loads more games
-- `scroll-continuous` - Verify multiple scrolls work
-- `scroll-back-to-top` - Verify scrolling back up works
+### Grid Tests (`library-grid.spec.ts`)
+- Game cards have cover images
+- Game cards display title
+- Game cards show platform badge
+- Multiple game cards render
+- Game cards have consistent dimensions
+- Card responds to hover
+- Grid is responsive
+- Grid maintains structure on resize
+- Shows loading indicator initially
+- Loading spinner disappears after load
+
+### Scroll Tests (`infinite-scroll.spec.ts`)
+- Loads more games when scrolling down
+- Triggers API call when reaching threshold
+- Does not trigger multiple simultaneous loads
+- Scroll position is maintained after load
+- Can scroll back to top
+- Continuous scrolling works
+- Handles rapid scroll events
+- Handles scroll during loading
+- Scroll is smooth (no jank)
+- Does not cause memory leaks during scroll
 
 ## Instructions
 
@@ -54,150 +77,99 @@ curl -s http://localhost:3001/api/health
 curl -s http://localhost:3000 | head -1
 ```
 
-If either fails, report the issue and abort:
-- "Backend not running. Start with: npm run dev:server"
-- "Frontend not running. Start with: npm run dev:client"
+If either fails, report the issue and provide start commands:
+- "Backend not running. Start with: `npm run dev:server`"
+- "Frontend not running. Start with: `npm run dev:client`"
 
-### 2. Load Test Scenarios
+### 2. Run Tests
 
-Read the test scenario files from `e2e/scenarios/`:
-- `e2e/scenarios/smoke.ts`
-- `e2e/scenarios/library-grid.ts`
-- `e2e/scenarios/infinite-scroll.ts`
+Execute the appropriate Playwright command based on the argument:
 
-Filter scenarios based on the argument:
-- No argument: Run all scenarios
-- `smoke`/`grid`/`scroll`: Filter by tag
-- Specific ID: Run single scenario
+```bash
+# No argument: Run all tests
+npx playwright test
 
-### 3. Execute Test Steps
+# smoke: Run smoke tests only
+npx playwright test e2e/tests/smoke.spec.ts
 
-For each scenario, execute steps sequentially using Chrome:
+# grid: Run grid tests
+npx playwright test e2e/tests/library-grid.spec.ts
 
-**Navigate** (`action: 'navigate'`):
-- Use Chrome to go to the specified URL
-- Example: Navigate to http://localhost:3000
+# scroll: Run scroll tests
+npx playwright test e2e/tests/infinite-scroll.spec.ts
+```
 
-**Wait** (`action: 'wait'`):
-- `networkIdle`: Wait for network activity to settle
-- `selector`: Wait for element to appear
-- `text`: Wait for text to appear
-- `duration`: Wait fixed milliseconds
+### 3. Report Results
 
-**Assert** (`action: 'assert'`):
-- `elementVisible`: Check element exists and is visible
-- `elementHidden`: Check element is not visible
-- `textPresent`: Check text appears on page
-- `elementCount`: Check number of matching elements
-
-**Screenshot** (`action: 'screenshot'`):
-- Capture the current viewport
-- Save to `e2e/results/screenshots/{scenario-id}_{name}.png`
-
-**Click** (`action: 'click'`):
-- Click the element matching the selector
-
-**Type** (`action: 'type'`):
-- Type text into the specified input
-
-**Scroll** (`action: 'scroll'`):
-- Scroll the viewport or element
-- Direction: 'up' or 'down'
-- Amount: pixels to scroll
-
-### 4. Handle Step Failures
-
-On assertion failure:
-1. Take an error screenshot
-2. Record the failure details (expected vs actual)
-3. Mark scenario as failed
-4. Continue to next scenario (don't abort the suite)
-
-### 5. Report Results
-
-After all scenarios complete, output a summary:
+After tests complete, summarize results:
 
 ```
-=== QA Results ===
-Total: X scenarios
+=== E2E Test Results ===
+Total: X tests
 Passed: Y
 Failed: Z
 Duration: A.Bs
 
-Passed:
-[PASS] smoke-page-load (6 steps, 2.1s)
-[PASS] smoke-header-count (4 steps, 1.8s)
+Passed Tests:
+[PASS] smoke.spec.ts > page loads successfully (1.2s)
+[PASS] smoke.spec.ts > displays game grid with cards (0.8s)
+...
 
-Failed:
-[FAIL] grid-hover-state
-  Step 4 failed: Verify hover effect changes opacity
-  Expected: element opacity < 1
-  Actual: element not found
-  Screenshot: e2e/results/screenshots/grid-hover-state_error.png
+Failed Tests:
+[FAIL] library-grid.spec.ts > card responds to hover
+  Error: Expected element to be visible
+  Screenshot: e2e/results/test-results/library-grid-card-responds-to-hover/test-failed.png
 ```
 
-### 6. Save Report
+### 4. On Failure
 
-Write JSON report to `e2e/results/reports/{timestamp}.json` with structure:
-- runId, timestamp, duration
-- summary: { total, passed, failed }
-- scenarios: array of results with step details
+If tests fail:
+1. Show the error message and which test failed
+2. Mention screenshot location if available
+3. Suggest running `npm run e2e:report` to view detailed HTML report
+4. Offer to investigate the specific failure
 
-## Element Selection
+## Test Results Location
 
-Use these selectors (in order of preference):
+- **HTML Report**: `e2e/results/html-report/`
+- **JSON Results**: `e2e/results/results.json`
+- **Screenshots**: `e2e/results/test-results/`
+- **Videos**: `e2e/results/test-results/` (on retry)
 
-1. **data-testid** (most reliable):
-   - `[data-testid="header"]`
-   - `[data-testid="game-count"]`
-   - `[data-testid="game-grid"]`
-   - `[data-testid="game-card"]`
-   - `[data-testid="loading-spinner"]`
-   - `[data-testid="error-message"]`
-   - `[data-testid="retry-button"]`
-   - `[data-testid="empty-message"]`
+## Useful Commands
 
-2. **Semantic elements**:
-   - `header`, `main`, `h1`, `h3`
-   - `img`, `svg`, `button`
+```bash
+# Run with UI mode (interactive)
+npm run e2e:ui
 
-3. **CSS classes** (least reliable, may change):
-   - `.group.relative` (game cards)
-   - `.animate-pulse` (skeleton loaders)
+# Run specific test file
+npx playwright test e2e/tests/smoke.spec.ts
 
-## Virtualization Note
+# Run tests in headed mode (see browser)
+npx playwright test --headed
 
-The game grid uses `react-window` for virtualization. This means:
-- Only visible items are in the DOM
-- Scroll to bring items into view before asserting
-- Use the game count in header as proxy for total count
-- Cards are recycled when scrolling
+# Run single test by name
+npx playwright test -g "page loads successfully"
 
-## Skill Chain Usage
+# Debug mode (step through)
+npx playwright test --debug
 
-After completing code changes to the frontend, invoke `/qa smoke` to verify:
-
-```
-User: "Add search filter to game grid"
-Claude: [Makes changes]
-Claude: "Let me verify the changes work."
-Claude: /qa smoke
-[QA agent runs tests]
-Claude: "All smoke tests passed. The search filter is working."
+# View last report
+npm run e2e:report
 ```
 
 ## Troubleshooting
 
-**"Cannot find elements"**
-- Wait for networkIdle before asserting
-- Check if element is virtualized (may need to scroll)
-- Verify data-testid attributes exist
+**"Cannot find module 'playwright'"**
+- Run `npm install` from project root
 
-**"Screenshots not saving"**
-- Ensure e2e/results/screenshots/ directory exists
-- Check write permissions
+**"Browser not found"**
+- Run `npx playwright install chromium`
 
-**"Tests timeout"**
-- Default timeout is 10 seconds per step
-- Increase timeout in scenario step if needed
-- Check network/server performance
+**"Connection refused localhost:3000/3001"**
+- Start dev servers: `npm run dev`
+
+**Tests timeout**
+- Default timeout is 30s per test
+- Check if servers are responding slowly
+- Increase timeout in specific test if needed
