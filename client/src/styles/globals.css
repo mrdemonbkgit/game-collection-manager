@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+/* Custom theme - Steam-inspired dark colors */
+@theme {
+  --color-steam-bg: #1b2838;
+  --color-steam-bg-dark: #171a21;
+  --color-steam-bg-light: #2a475e;
+  --color-steam-bg-card: #1e2b3a;
+  --color-steam-text: #c7d5e0;
+  --color-steam-text-muted: #8f98a0;
+  --color-steam-accent: #66c0f4;
+  --color-steam-border: #3d4f5f;
+
+  --color-platform-steam: #1b2838;
+  --color-platform-gamepass: #107c10;
+  --color-platform-eaplay: #ff4747;
+  --color-platform-ubisoftplus: #0070ff;
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #171a21;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3d4f5f;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4d5f6f;
+}
+
+/* Base styles */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--color-steam-bg);
+  color: var(--color-steam-text);
+  font-family: var(--font-sans);
+}
