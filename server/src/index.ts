@@ -10,6 +10,7 @@ import cors from 'cors';
 import { initDatabase, closeDatabase } from './db/connection.js';
 import gamesRouter from './routes/games.js';
 import syncRouter from './routes/sync.js';
+import logsRouter from './routes/logs.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -24,6 +25,7 @@ initDatabase();
 // Routes
 app.use('/api/games', gamesRouter);
 app.use('/api/sync', syncRouter);
+app.use('/api/logs', logsRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

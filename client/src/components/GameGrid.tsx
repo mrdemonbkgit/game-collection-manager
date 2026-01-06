@@ -3,6 +3,7 @@ import { FixedSizeList as List, ListChildComponentProps, ListOnItemsRenderedProp
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { Game } from '../types/game';
 import GameCard from './GameCard';
+import { debug, useRenderLogger, useStateLogger } from '../utils/debug';
 
 interface GameGridProps {
   games: Game[];
@@ -36,6 +37,14 @@ export default function GameGrid({
   loading,
   onLoadMore,
 }: GameGridProps) {
+  // Debug: Log renders with props
+  useRenderLogger('GameGrid', {
+    gamesLength: games.length,
+    total,
+    hasMore,
+    loading,
+  });
+
   // All values that change frequently go in refs to avoid re-render cascades
   const columnCountRef = useRef(1);
   const loadingRef = useRef(loading);
@@ -44,33 +53,67 @@ export default function GameGrid({
   const onLoadMoreRef = useRef(onLoadMore);
   const lastLoadTriggerRef = useRef(0);
 
+  // Debug: Track state changes
+  useStateLogger('GameGrid', 'loading', loading);
+  useStateLogger('GameGrid', 'hasMore', hasMore);
+  useStateLogger('GameGrid', 'gamesLength', games.length);
+
   // Keep refs in sync with props (runs after render, no cascade)
   useEffect(() => {
     loadingRef.current = loading;
     hasMoreRef.current = hasMore;
     gamesLengthRef.current = games.length;
     onLoadMoreRef.current = onLoadMore;
+    debug.log('info', 'GameGrid refs synced', { loading, hasMore, gamesLength: games.length });
   });
 
   // Stable callback - uses refs so no dependency changes
   const handleItemsRendered = useCallback(
-    ({ visibleStopIndex }: ListOnItemsRenderedProps) => {
+    ({ visibleStopIndex, visibleStartIndex }: ListOnItemsRenderedProps) => {
+      debug.logCallback('GameGrid', 'handleItemsRendered', [{
+        visibleStartIndex,
+        visibleStopIndex,
+        loading: loadingRef.current,
+        hasMore: hasMoreRef.current,
+        gamesLength: gamesLengthRef.current,
+        columnCount: columnCountRef.current,
+      }]);
+
       // Guard: don't load if already loading or no more data
-      if (loadingRef.current || !hasMoreRef.current) {
+      if (loadingRef.current) {
+        debug.log('info', 'GameGrid.handleItemsRendered: SKIPPED (loading)');
+        return;
+      }
+      if (!hasMoreRef.current) {
+        debug.log('info', 'GameGrid.handleItemsRendered: SKIPPED (no more data)');
         return;
       }
 
       // Throttle: prevent rapid-fire calls (200ms minimum)
       const now = Date.now();
-      if (now - lastLoadTriggerRef.current < 200) {
+      const timeSinceLastLoad = now - lastLoadTriggerRef.current;
+      if (timeSinceLastLoad < 200) {
+        debug.log('info', `GameGrid.handleItemsRendered: THROTTLED (${timeSinceLastLoad}ms since last)`);
         return;
       }
 
       const columnCount = columnCountRef.current;
       const loadedRowCount = Math.ceil(gamesLengthRef.current / columnCount);
 
+      debug.log('info', 'GameGrid.handleItemsRendered: checking threshold', {
+        visibleStopIndex,
+        loadedRowCount,
+        threshold: LOAD_THRESHOLD,
+        shouldLoad: visibleStopIndex >= loadedRowCount - LOAD_THRESHOLD,
+      });
+
       // Load more when visible stop row is within threshold of loaded data
       if (visibleStopIndex >= loadedRowCount - LOAD_THRESHOLD) {
+        debug.log('warn', '🔄 GameGrid: TRIGGERING LOAD MORE', {
+          visibleStopIndex,
+          loadedRowCount,
+          gamesLength: gamesLengthRef.current,
+        });
         lastLoadTriggerRef.current = now;
         onLoadMoreRef.current();
       }
