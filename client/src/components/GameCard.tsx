@@ -136,17 +136,18 @@ function GameCard({
           </button>
         )}
 
-        {/* Collection dropdown */}
-        {showDropdown && onAddToCollection && (
-          <AddToCollectionDropdown
-            gameId={game.id}
-            collections={collections}
-            gameCollectionIds={gameCollectionIds}
-            onToggle={onAddToCollection}
-            onClose={() => setShowDropdown(false)}
-          />
-        )}
       </div>
+
+      {/* Collection dropdown - outside overflow-hidden container */}
+      {showDropdown && onAddToCollection && (
+        <AddToCollectionDropdown
+          gameId={game.id}
+          collections={collections}
+          gameCollectionIds={gameCollectionIds}
+          onToggle={onAddToCollection}
+          onClose={() => setShowDropdown(false)}
+        />
+      )}
 
       {/* Title - fixed height, truncated */}
       <div className="mt-1 px-0.5 h-6">

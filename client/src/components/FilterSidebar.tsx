@@ -11,6 +11,7 @@ interface FilterSidebarProps {
   selectedCollections: number[];
   onToggleCollection: (id: number) => void;
   onCreateCollection: () => void;
+  onManageCollections: () => void;
   onApplySmartFilter?: (criteria: FilterCriteria) => void;
   onClearAll: () => void;
   hasActiveFilters: boolean;
@@ -36,6 +37,7 @@ export default function FilterSidebar({
   selectedCollections,
   onToggleCollection,
   onCreateCollection,
+  onManageCollections,
   onApplySmartFilter,
   onClearAll,
   hasActiveFilters,
@@ -134,13 +136,22 @@ export default function FilterSidebar({
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-medium text-steam-text">Collections</h3>
-                <button
-                  onClick={onCreateCollection}
-                  className="text-xs text-steam-accent hover:text-steam-text transition-colors"
-                  data-testid="create-collection"
-                >
-                  + New
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={onManageCollections}
+                    className="text-xs text-steam-text-muted hover:text-steam-text transition-colors"
+                    data-testid="manage-collections"
+                  >
+                    Manage
+                  </button>
+                  <button
+                    onClick={onCreateCollection}
+                    className="text-xs text-steam-accent hover:text-steam-text transition-colors"
+                    data-testid="create-collection"
+                  >
+                    + New
+                  </button>
+                </div>
               </div>
               {collections.length === 0 ? (
                 <p className="text-xs text-steam-text-muted italic">No collections yet</p>

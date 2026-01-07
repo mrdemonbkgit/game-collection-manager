@@ -55,7 +55,7 @@ export default function AddToCollectionDropdown({
   return (
     <div
       ref={dropdownRef}
-      className="absolute top-8 right-0 z-20 bg-steam-bg-card border border-steam-border rounded-md shadow-lg min-w-[200px] py-1"
+      className="absolute top-10 left-0 z-50 bg-steam-bg-card border border-steam-border rounded-md shadow-lg w-[240px] py-1 max-h-[300px] overflow-y-auto"
       onClick={(e) => e.stopPropagation()}
       data-testid="add-to-collection-dropdown"
     >

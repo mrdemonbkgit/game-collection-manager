@@ -6,14 +6,17 @@ import { useCollections, clearCollectionsCache } from '../hooks/useCollections';
 import { fetchGameCount } from '../services/gamesService';
 import {
   createCollection,
+  updateCollection,
+  deleteCollection,
   addGameToCollection,
 } from '../services/collectionsService';
-import { CreateCollectionInput, FilterCriteria } from '../types/collection';
+import { Collection, CreateCollectionInput, FilterCriteria } from '../types/collection';
 import Header from '../components/Header';
 import FilterSidebar from '../components/FilterSidebar';
 import GameGrid from '../components/GameGrid';
 import LoadingSpinner from '../components/LoadingSpinner';
 import CollectionModal from '../components/CollectionModal';
+import ManageCollectionsModal from '../components/ManageCollectionsModal';
 
 export default function LibraryPage() {
   // Filter state from URL
@@ -44,6 +47,7 @@ export default function LibraryPage() {
 
   // Collection modal state
   const [showCollectionModal, setShowCollectionModal] = useState(false);
+  const [showManageModal, setShowManageModal] = useState(false);
 
   // Total count (unfiltered) - fetched once on mount
   const [totalCount, setTotalCount] = useState(0);
@@ -87,6 +91,34 @@ export default function LibraryPage() {
         refreshCollections();
       } catch (err) {
         console.error('Failed to toggle game in collection:', err);
+      }
+    },
+    [refreshCollections]
+  );
+
+  // Handle editing a collection
+  const handleEditCollection = useCallback(
+    async (collection: Collection, input: CreateCollectionInput) => {
+      try {
+        await updateCollection(collection.id, input);
+        clearCollectionsCache();
+        refreshCollections();
+      } catch (err) {
+        console.error('Failed to update collection:', err);
+      }
+    },
+    [refreshCollections]
+  );
+
+  // Handle deleting a collection
+  const handleDeleteCollection = useCallback(
+    async (id: number) => {
+      try {
+        await deleteCollection(id);
+        clearCollectionsCache();
+        refreshCollections();
+      } catch (err) {
+        console.error('Failed to delete collection:', err);
       }
     },
     [refreshCollections]
@@ -145,6 +177,7 @@ export default function LibraryPage() {
       selectedCollections={filters.collectionIds}
       onToggleCollection={toggleCollection}
       onCreateCollection={() => setShowCollectionModal(true)}
+      onManageCollections={() => setShowManageModal(true)}
       onApplySmartFilter={handleApplySmartFilter}
       onClearAll={clearFilters}
       hasActiveFilters={hasActiveFilters}
@@ -243,6 +276,19 @@ export default function LibraryPage() {
         onClose={() => setShowCollectionModal(false)}
         onSave={handleCreateCollection}
         currentFilters={filters}
+      />
+
+      {/* Manage Collections Modal */}
+      <ManageCollectionsModal
+        isOpen={showManageModal}
+        onClose={() => setShowManageModal(false)}
+        collections={collections}
+        onEdit={handleEditCollection}
+        onDelete={handleDeleteCollection}
+        onCreate={() => {
+          setShowManageModal(false);
+          setShowCollectionModal(true);
+        }}
       />
     </div>
   );
