@@ -50,9 +50,10 @@ export default defineConfig({
   ],
 
   /* Run your local dev server before starting the tests */
+  /* Uses separate test database (./data/test.db) to avoid affecting dev data */
   webServer: [
     {
-      command: 'npm run dev:server',
+      command: 'npm run dev:test-server',
       url: 'http://localhost:3001/api/health',
       reuseExistingServer: !process.env.CI,
       timeout: 30000,
