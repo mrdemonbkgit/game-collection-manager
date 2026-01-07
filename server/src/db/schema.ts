@@ -87,4 +87,6 @@ CREATE INDEX IF NOT EXISTS idx_games_release_date ON games(release_date);
 CREATE INDEX IF NOT EXISTS idx_game_platforms_game_id ON game_platforms(game_id);
 CREATE INDEX IF NOT EXISTS idx_game_platforms_type ON game_platforms(platform_type);
 CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation ON ai_messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_collection_games_collection ON collection_games(collection_id);
+CREATE INDEX IF NOT EXISTS idx_collection_games_game ON collection_games(game_id);
 `;

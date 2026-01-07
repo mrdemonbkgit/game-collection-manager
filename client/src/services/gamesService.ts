@@ -12,6 +12,7 @@ export interface FetchGamesParams {
   search?: string;
   genres?: string[];      // Multi-select support
   platforms?: string[];   // Multi-select support
+  collections?: number[]; // Collection IDs to filter by
   sortBy?: 'title' | 'release_date' | 'metacritic_score' | 'created_at';
   sortOrder?: 'asc' | 'desc';
 }
@@ -38,6 +39,7 @@ export async function fetchGames(
     search,
     genres,
     platforms,
+    collections,
     sortBy = 'title',
     sortOrder = 'asc',
   } = params;
@@ -53,6 +55,7 @@ export async function fetchGames(
   // Use CSV format for multi-select params
   if (platforms && platforms.length > 0) queryParams.set('platforms', platforms.join(','));
   if (genres && genres.length > 0) queryParams.set('genres', genres.join(','));
+  if (collections && collections.length > 0) queryParams.set('collections', collections.join(','));
 
   const response = await fetchApi<GamesApiResponse>(
     `/games?${queryParams.toString()}`

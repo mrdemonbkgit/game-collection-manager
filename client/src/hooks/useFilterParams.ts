@@ -8,6 +8,7 @@ export interface FilterState {
   search: string;
   platforms: string[];
   genres: string[];
+  collectionIds: number[];
   sortBy: SortByType;
   sortOrder: SortOrderType;
 }
@@ -19,6 +20,8 @@ interface UseFilterParamsResult {
   togglePlatform: (platform: string) => void;
   setGenres: (genres: string[]) => void;
   toggleGenre: (genre: string) => void;
+  setCollections: (ids: number[]) => void;
+  toggleCollection: (collectionId: number) => void;
   setSort: (sortBy: SortByType, sortOrder: SortOrderType) => void;
   setSortById: (sortId: string) => void;
   clearFilters: () => void;
@@ -64,6 +67,7 @@ export function useFilterParams(): UseFilterParamsResult {
     search: searchParams.get('search') || '',
     platforms: parseArrayParam(searchParams.get('platforms')),
     genres: parseArrayParam(searchParams.get('genres')),
+    collectionIds: parseArrayParam(searchParams.get('collections')).map(Number).filter(n => !isNaN(n)),
     sortBy: validateSortBy(searchParams.get('sortBy')),
     sortOrder: validateSortOrder(searchParams.get('sortOrder')),
   }), [searchParams]);
@@ -73,6 +77,7 @@ export function useFilterParams(): UseFilterParamsResult {
     return filters.search !== '' ||
       filters.platforms.length > 0 ||
       filters.genres.length > 0 ||
+      filters.collectionIds.length > 0 ||
       filters.sortBy !== DEFAULT_SORT_BY ||
       filters.sortOrder !== DEFAULT_SORT_ORDER;
   }, [filters]);
@@ -157,6 +162,21 @@ export function useFilterParams(): UseFilterParamsResult {
     setGenres(newGenres);
   }, [searchParams, setGenres]);
 
+  // Collection setters
+  const setCollections = useCallback((ids: number[]) => {
+    updateParams({
+      collections: ids.length > 0 ? ids.join(',') : null,
+    });
+  }, [updateParams]);
+
+  const toggleCollection = useCallback((collectionId: number) => {
+    const current = filters.collectionIds;
+    const newIds = current.includes(collectionId)
+      ? current.filter(id => id !== collectionId)
+      : [...current, collectionId];
+    setCollections(newIds);
+  }, [filters.collectionIds, setCollections]);
+
   // Sort setters
   const setSort = useCallback((sortBy: SortByType, sortOrder: SortOrderType) => {
     const updates: Partial<Record<string, string | null>> = {};
@@ -202,6 +222,7 @@ export function useFilterParams(): UseFilterParamsResult {
       search: null,
       platforms: null,
       genres: null,
+      collections: null,
       sortBy: null,
       sortOrder: null,
     });
@@ -217,6 +238,8 @@ export function useFilterParams(): UseFilterParamsResult {
     togglePlatform,
     setGenres,
     toggleGenre,
+    setCollections,
+    toggleCollection,
     setSort,
     setSortById,
     clearFilters,

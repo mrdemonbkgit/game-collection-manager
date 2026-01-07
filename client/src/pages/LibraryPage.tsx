@@ -1,20 +1,31 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useGames } from '../hooks/useGames';
 import { useFilterParams } from '../hooks/useFilterParams';
 import { useFilterOptions } from '../hooks/useFilterOptions';
+import { useCollections, clearCollectionsCache } from '../hooks/useCollections';
 import { fetchGameCount } from '../services/gamesService';
+import {
+  createCollection,
+  addGameToCollection,
+} from '../services/collectionsService';
+import { CreateCollectionInput, FilterCriteria } from '../types/collection';
 import Header from '../components/Header';
 import FilterSidebar from '../components/FilterSidebar';
 import GameGrid from '../components/GameGrid';
 import LoadingSpinner from '../components/LoadingSpinner';
+import CollectionModal from '../components/CollectionModal';
 
 export default function LibraryPage() {
   // Filter state from URL
   const {
     filters,
     setSearch,
+    setPlatforms,
     togglePlatform,
+    setGenres,
     toggleGenre,
+    toggleCollection,
+    setSort,
     setSortById,
     clearFilters,
     hasActiveFilters,
@@ -28,6 +39,12 @@ export default function LibraryPage() {
     loading: optionsLoading,
   } = useFilterOptions();
 
+  // Collections from API
+  const { collections, refresh: refreshCollections } = useCollections();
+
+  // Collection modal state
+  const [showCollectionModal, setShowCollectionModal] = useState(false);
+
   // Total count (unfiltered) - fetched once on mount
   const [totalCount, setTotalCount] = useState(0);
   useEffect(() => {
@@ -39,9 +56,58 @@ export default function LibraryPage() {
     search: filters.search || undefined,
     platforms: filters.platforms.length > 0 ? filters.platforms : undefined,
     genres: filters.genres.length > 0 ? filters.genres : undefined,
+    collections: filters.collectionIds.length > 0 ? filters.collectionIds : undefined,
     sortBy: filters.sortBy,
     sortOrder: filters.sortOrder,
   });
+
+  // Handle creating a collection
+  const handleCreateCollection = useCallback(
+    async (input: CreateCollectionInput) => {
+      try {
+        await createCollection(input);
+        clearCollectionsCache();
+        refreshCollections();
+        setShowCollectionModal(false);
+      } catch (err) {
+        console.error('Failed to create collection:', err);
+      }
+    },
+    [refreshCollections]
+  );
+
+  // Handle adding/removing a game from a collection
+  const handleToggleGameInCollection = useCallback(
+    async (collectionId: number, gameId: number) => {
+      // For now, we just add. To toggle, we'd need to track which games are in which collections.
+      // This is a simplification - in a full implementation we'd check membership first.
+      try {
+        await addGameToCollection(collectionId, gameId);
+        clearCollectionsCache();
+        refreshCollections();
+      } catch (err) {
+        console.error('Failed to toggle game in collection:', err);
+      }
+    },
+    [refreshCollections]
+  );
+
+  // Handle applying smart filter criteria
+  const handleApplySmartFilter = useCallback(
+    (criteria: FilterCriteria) => {
+      // Clear existing filters first
+      clearFilters();
+
+      // Apply the saved criteria
+      if (criteria.search) setSearch(criteria.search);
+      if (criteria.platforms?.length) setPlatforms(criteria.platforms);
+      if (criteria.genres?.length) setGenres(criteria.genres);
+      if (criteria.sortBy && criteria.sortOrder) {
+        setSort(criteria.sortBy as 'title' | 'release_date' | 'metacritic_score' | 'created_at', criteria.sortOrder as 'asc' | 'desc');
+      }
+    },
+    [clearFilters, setSearch, setPlatforms, setGenres, setSort]
+  );
 
   // Build current sort ID for the dropdown
   const sortByToId: Record<string, string> = {
@@ -75,6 +141,11 @@ export default function LibraryPage() {
       genres={genres}
       selectedGenres={filters.genres}
       onToggleGenre={toggleGenre}
+      collections={collections}
+      selectedCollections={filters.collectionIds}
+      onToggleCollection={toggleCollection}
+      onCreateCollection={() => setShowCollectionModal(true)}
+      onApplySmartFilter={handleApplySmartFilter}
       onClearAll={clearFilters}
       hasActiveFilters={hasActiveFilters}
       loading={optionsLoading}
@@ -160,9 +231,19 @@ export default function LibraryPage() {
             hasMore={hasMore}
             loading={loading}
             onLoadMore={loadMore}
+            collections={collections}
+            onAddToCollection={handleToggleGameInCollection}
           />
         </main>
       </div>
+
+      {/* Collection Modal */}
+      <CollectionModal
+        isOpen={showCollectionModal}
+        onClose={() => setShowCollectionModal(false)}
+        onSave={handleCreateCollection}
+        currentFilters={filters}
+      />
     </div>
   );
 }

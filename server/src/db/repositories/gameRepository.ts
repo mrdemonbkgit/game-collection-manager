@@ -227,6 +227,7 @@ export interface GameQueryOptions {
   genres?: string[];     // Multi-select support
   tag?: string;
   search?: string;
+  collectionIds?: number[];  // Filter by collection IDs (multi-select)
   sortBy?: 'title' | 'release_date' | 'metacritic_score' | 'created_at';
   sortOrder?: 'asc' | 'desc';
   limit?: number;
@@ -265,6 +266,15 @@ export function getAllGames(options: GameQueryOptions = {}): { games: GameRow[];
       id IN (SELECT game_id FROM game_platforms WHERE platform_type IN (${placeholders}))
     `);
     platformList.forEach(p => params.push(p));
+  }
+
+  // Collection filtering
+  if (options.collectionIds && options.collectionIds.length > 0) {
+    const placeholders = options.collectionIds.map(() => '?').join(', ');
+    conditions.push(`
+      id IN (SELECT game_id FROM collection_games WHERE collection_id IN (${placeholders}))
+    `);
+    options.collectionIds.forEach(id => params.push(id));
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

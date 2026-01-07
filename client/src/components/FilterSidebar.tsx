@@ -1,3 +1,5 @@
+import { Collection, FilterCriteria } from '../types/collection';
+
 interface FilterSidebarProps {
   platforms: string[];
   selectedPlatforms: string[];
@@ -5,6 +7,11 @@ interface FilterSidebarProps {
   genres: string[];
   selectedGenres: string[];
   onToggleGenre: (genre: string) => void;
+  collections: Collection[];
+  selectedCollections: number[];
+  onToggleCollection: (id: number) => void;
+  onCreateCollection: () => void;
+  onApplySmartFilter?: (criteria: FilterCriteria) => void;
   onClearAll: () => void;
   hasActiveFilters: boolean;
   loading?: boolean;
@@ -25,10 +32,24 @@ export default function FilterSidebar({
   genres,
   selectedGenres,
   onToggleGenre,
+  collections,
+  selectedCollections,
+  onToggleCollection,
+  onCreateCollection,
+  onApplySmartFilter,
   onClearAll,
   hasActiveFilters,
   loading = false,
 }: FilterSidebarProps) {
+  const handleCollectionClick = (collection: Collection) => {
+    if (collection.isSmartFilter && collection.filterCriteria && onApplySmartFilter) {
+      // Smart filter: Apply saved criteria
+      onApplySmartFilter(collection.filterCriteria);
+    } else {
+      // Regular collection: Toggle collection filter
+      onToggleCollection(collection.id);
+    }
+  };
   return (
     <aside
       className="w-[280px] flex-shrink-0 bg-steam-bg-dark border-r border-steam-border overflow-y-auto"
@@ -102,6 +123,62 @@ export default function FilterSidebar({
                       />
                       <span className="text-sm text-steam-text-muted group-hover:text-steam-text transition-colors">
                         {genre}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Collections Section */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-steam-text">Collections</h3>
+                <button
+                  onClick={onCreateCollection}
+                  className="text-xs text-steam-accent hover:text-steam-text transition-colors"
+                  data-testid="create-collection"
+                >
+                  + New
+                </button>
+              </div>
+              {collections.length === 0 ? (
+                <p className="text-xs text-steam-text-muted italic">No collections yet</p>
+              ) : (
+                <div className="space-y-2">
+                  {collections.map((collection) => (
+                    <label
+                      key={collection.id}
+                      className="flex items-center gap-2 cursor-pointer group"
+                    >
+                      {collection.isSmartFilter ? (
+                        // Smart filter: Click applies filters (show icon instead of checkbox)
+                        <button
+                          onClick={() => handleCollectionClick(collection)}
+                          className="w-4 h-4 flex items-center justify-center text-steam-accent"
+                          data-testid={`smart-filter-${collection.id}`}
+                          title="Smart Filter"
+                        >
+                          ⚡
+                        </button>
+                      ) : (
+                        // Regular collection: Checkbox toggle
+                        <input
+                          type="checkbox"
+                          checked={selectedCollections.includes(collection.id)}
+                          onChange={() => onToggleCollection(collection.id)}
+                          className="w-4 h-4 rounded border-steam-border bg-steam-bg-card text-steam-accent focus:ring-steam-accent focus:ring-offset-0 cursor-pointer"
+                          data-testid={`collection-${collection.id}`}
+                        />
+                      )}
+                      <span
+                        onClick={() => handleCollectionClick(collection)}
+                        className="text-sm text-steam-text-muted group-hover:text-steam-text transition-colors flex-1 cursor-pointer"
+                      >
+                        {collection.name}
+                      </span>
+                      <span className="text-xs text-steam-text-muted">
+                        {collection.isSmartFilter ? 'Smart' : collection.gameCount}
                       </span>
                     </label>
                   ))}

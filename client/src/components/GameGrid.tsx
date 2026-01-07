@@ -2,6 +2,7 @@ import { useCallback, useRef, useEffect } from 'react';
 import { FixedSizeList as List, ListChildComponentProps, ListOnItemsRenderedProps } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { Game } from '../types/game';
+import { Collection } from '../types/collection';
 import GameCard from './GameCard';
 import { debug, useRenderLogger, useStateLogger } from '../utils/debug';
 
@@ -11,6 +12,9 @@ interface GameGridProps {
   hasMore: boolean;
   loading: boolean;
   onLoadMore: () => void;
+  collections?: Collection[];
+  gameCollectionMap?: Map<number, number[]>; // gameId -> collectionIds
+  onAddToCollection?: (collectionId: number, gameId: number) => void;
 }
 
 // Card dimensions (Steam medium density)
@@ -36,6 +40,9 @@ export default function GameGrid({
   hasMore,
   loading,
   onLoadMore,
+  collections = [],
+  gameCollectionMap,
+  onAddToCollection,
 }: GameGridProps) {
   // Debug: Log renders with props
   useRenderLogger('GameGrid', {
@@ -127,8 +134,11 @@ export default function GameGrid({
       games: Game[];
       columnCount: number;
       total: number;
+      collections: Collection[];
+      gameCollectionMap?: Map<number, number[]>;
+      onAddToCollection?: (collectionId: number, gameId: number) => void;
     }>) => {
-      const { games, columnCount, total } = data;
+      const { games, columnCount, total, collections, gameCollectionMap, onAddToCollection } = data;
       const startIndex = rowIndex * columnCount;
 
       return (
@@ -145,9 +155,15 @@ export default function GameGrid({
 
             // Game exists - render card
             if (game) {
+              const gameCollectionIds = gameCollectionMap?.get(game.id) || [];
               return (
                 <div key={game.id} style={{ width: CARD_WIDTH, height: CARD_HEIGHT }}>
-                  <GameCard game={game} />
+                  <GameCard
+                    game={game}
+                    collections={collections}
+                    gameCollectionIds={gameCollectionIds}
+                    onAddToCollection={onAddToCollection}
+                  />
                 </div>
               );
             }
@@ -167,8 +183,15 @@ export default function GameGrid({
 
   // Memoized item data - only changes when games or total change
   const createItemData = useCallback(
-    (columnCount: number) => ({ games, columnCount, total }),
-    [games, total]
+    (columnCount: number) => ({
+      games,
+      columnCount,
+      total,
+      collections,
+      gameCollectionMap,
+      onAddToCollection,
+    }),
+    [games, total, collections, gameCollectionMap, onAddToCollection]
   );
 
   return (

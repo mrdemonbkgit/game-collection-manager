@@ -1,8 +1,13 @@
 import { memo, useState } from 'react';
 import { Game } from '../types/game';
+import { Collection } from '../types/collection';
+import AddToCollectionDropdown from './AddToCollectionDropdown';
 
 interface GameCardProps {
   game: Game;
+  collections?: Collection[];
+  gameCollectionIds?: number[];
+  onAddToCollection?: (collectionId: number, gameId: number) => void;
 }
 
 // Steam cover image URLs
@@ -40,12 +45,20 @@ function SteamIcon({ className }: { className?: string }) {
   );
 }
 
-function GameCard({ game }: GameCardProps) {
+function GameCard({
+  game,
+  collections = [],
+  gameCollectionIds = [],
+  onAddToCollection,
+}: GameCardProps) {
   const [fallbackIndex, setFallbackIndex] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
 
   const imageUrl = getImageUrl(game, fallbackIndex);
   const showTextPlaceholder = fallbackIndex >= 3 || !imageUrl;
+
+  const showAddButton = collections.length > 0 && onAddToCollection;
 
   const handleImageError = () => {
     if (fallbackIndex < 3) {
@@ -94,6 +107,44 @@ function GameCard({ game }: GameCardProps) {
           <div className="absolute top-1.5 left-1.5 bg-steam-bg/80 rounded px-1 py-0.5">
             <SteamIcon className="w-3.5 h-3.5 text-steam-accent" />
           </div>
+        )}
+
+        {/* Add to Collection button */}
+        {showAddButton && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowDropdown(!showDropdown);
+            }}
+            className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 bg-steam-bg-dark/80 hover:bg-steam-bg-dark p-1.5 rounded transition-opacity"
+            title="Add to Collection"
+            data-testid={`add-to-collection-btn-${game.id}`}
+          >
+            <svg
+              className="w-4 h-4 text-steam-accent"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+          </button>
+        )}
+
+        {/* Collection dropdown */}
+        {showDropdown && onAddToCollection && (
+          <AddToCollectionDropdown
+            gameId={game.id}
+            collections={collections}
+            gameCollectionIds={gameCollectionIds}
+            onToggle={onAddToCollection}
+            onClose={() => setShowDropdown(false)}
+          />
         )}
       </div>
 

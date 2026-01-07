@@ -68,6 +68,12 @@ router.get('/', (req, res) => {
     const genreParam = req.query.genre as string | undefined;
     const genres = parseCSVParam(genresParam) || parseCSVParam(genreParam);
 
+    // Parse collections param
+    const collectionsParam = req.query.collections as string | undefined;
+    const collectionIds = collectionsParam
+      ? collectionsParam.split(',').map(Number).filter(n => !isNaN(n))
+      : undefined;
+
     const options: GameQueryOptions = {
       search: req.query.search as string | undefined,
       platforms: platforms.length > 0 ? platforms : undefined,
@@ -75,6 +81,7 @@ router.get('/', (req, res) => {
       genres: genres.length > 0 ? genres : undefined,
       genre: !genres.length ? (genreParam || undefined) : undefined,
       tag: req.query.tag as string | undefined,
+      collectionIds,
       sortBy: req.query.sortBy as GameQueryOptions['sortBy'],
       sortOrder: req.query.sortOrder as GameQueryOptions['sortOrder'],
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 50,
