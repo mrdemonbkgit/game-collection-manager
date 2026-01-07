@@ -199,3 +199,99 @@ Build the React frontend:
 - User has API keys ready when needed
 - No rush, quality over speed
 
+
+## E2E / Browser Testing
+
+This project has **two options** for E2E testing:
+
+| Option | Best For | Speed | CI/CD Ready |
+|--------|----------|-------|-------------|
+| **Playwright** | Automated regression tests | Fast (parallel) | Yes |
+| **Chrome Bridge** | Interactive debugging, extension testing | Slower | No |
+
+---
+
+### Option 1: Playwright (Primary)
+
+Uses bundled Chromium browser with full test framework. **Recommended for automated testing.**
+
+**Commands:**
+```bash
+npx playwright test              # Run all tests (headless)
+npx playwright test --headed     # Run with visible browser
+npm run e2e:smoke                # Smoke tests only
+npm run e2e:grid                 # Library grid tests
+npm run e2e:scroll               # Infinite scroll tests
+npm run e2e:ui                   # Interactive UI mode
+npm run e2e:report               # View HTML report
+```
+
+**Pros:**
+- Fast parallel execution (16 workers)
+- Isolated, reproducible environment
+- Built-in assertions, auto-waiting, screenshots/videos
+- Works in CI/CD pipelines
+
+**Cons:**
+- Uses bundled Chromium, not your actual browser
+- Cannot test browser extensions
+
+---
+
+### Option 2: Chrome Bridge (Real Browser)
+
+Uses your actual Windows Chrome via CDP connection from WSL. **Best for debugging and manual verification.**
+
+**Step 1: Check if bridge is running:**
+```bash
+WINDOWS_IP=$(ip route | grep default | awk '{print $3}')
+nc -zv $WINDOWS_IP 19222 2>&1 | grep -q "succeeded" && echo "Bridge running" || echo "Bridge not running"
+```
+
+**Step 2: Start the bridge if needed (run from WSL, don't ask user):**
+```bash
+powershell.exe -ExecutionPolicy Bypass -File "C:\Users\Tony\projects\claude-chrome-bridge\windows-host\start-all.ps1"
+```
+
+**Step 3: Verify it's running:**
+```bash
+sleep 3
+nc -zv $WINDOWS_IP 19222
+```
+
+**Important:** Always run these checks automatically when Chrome Bridge testing is requested. Do not ask the user to start the bridge manually.
+
+**Available MCP Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `mcp__claude-in-chrome__tabs_context_mcp` | Get browser tabs |
+| `mcp__claude-in-chrome__navigate` | Navigate to URL |
+| `mcp__claude-in-chrome__computer` | Screenshot, click, type, scroll |
+| `mcp__claude-in-chrome__get_page_text` | Extract page text |
+| `mcp__claude-in-chrome__javascript_tool` | Execute JavaScript |
+| `mcp__claude-in-chrome__find` | Find elements on page |
+| `mcp__claude-in-chrome__form_input` | Fill form fields |
+
+**Pros:**
+- Tests your actual browser with extensions, settings, cookies
+- See exactly what users see
+- Good for interactive debugging
+
+**Cons:**
+- Single browser instance (no parallelization)
+- No built-in test framework
+- Requires bridge to be running
+
+---
+
+### When to Use Which
+
+| Use Case | Tool |
+|----------|------|
+| Automated regression tests | Playwright |
+| CI/CD pipeline | Playwright |
+| Quick manual verification | Chrome Bridge |
+| Interactive debugging | Chrome Bridge |
+| Testing with extensions | Chrome Bridge |
+| Visual issue investigation | Chrome Bridge |
