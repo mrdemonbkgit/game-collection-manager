@@ -1,6 +1,6 @@
 # Claude Code Session Notes
 
-**Last Updated:** Phase 1 Complete (Steam Import Working)
+**Last Updated:** Phase 3 Complete (Filtering, Search & Sort Working)
 
 ---
 
@@ -19,21 +19,22 @@ This is a **personal PC game collection manager** for a user with 2420+ Steam ga
 
 ## Current State
 
-### Phase 1: COMPLETE ✅
+### Phase 1: COMPLETE ✅ - Foundation + Steam Import
 
 **What's working:**
 - Express server at `http://localhost:3001`
 - SQLite database using Node.js built-in `node:sqlite` module
-- Steam library sync (2420 games imported successfully)
+- Steam library sync (2,420 games imported successfully)
 - Full CRUD for games with filtering, pagination, sorting
-- 24 passing unit tests
+- 37 passing server unit tests
 
 **API Endpoints:**
 ```
 GET  /api/health              - Health check
-GET  /api/games               - List games (supports ?search, ?genre, ?platform, ?sortBy, ?limit, ?offset)
+GET  /api/games               - List games (supports ?search, ?genres, ?platforms, ?sortBy, ?sortOrder, ?limit, ?offset)
 GET  /api/games/:id           - Get single game
 GET  /api/games/count         - Total count
+GET  /api/games/filters       - Get filter options (platforms, genres, sortOptions)
 POST /api/sync/steam          - Full sync with details (slow, rate-limited)
 POST /api/sync/steam/quick    - Quick sync, basic info only (fast)
 GET  /api/sync/status         - Check sync configuration
@@ -41,6 +42,40 @@ DELETE /api/sync/reset        - Clear all games
 ```
 
 **Database:** `./data/games.db` (SQLite)
+
+### Phase 2: COMPLETE ✅ - Library Grid UI
+
+**What's working:**
+- React frontend at `http://localhost:3000`
+- Dark theme with Steam-inspired design
+- Grid view displaying 2,420 games with cover art
+- Game cards with hover effects and platform badges
+- Infinite scroll with smooth loading
+- Responsive grid layout
+
+### Phase 3: COMPLETE ✅ - Filtering, Search & Sort
+
+**What's working:**
+- Search bar with debounced input (300ms)
+- Sort dropdown (Title A-Z/Z-A, Release Date, Metacritic, Date Added)
+- Filter sidebar (280px, always visible)
+- Platform filter with checkboxes
+- Genre filter (requires detailed sync to populate)
+- URL state persistence (shareable filter links)
+- "Showing X of Y games" count
+- Clear All Filters button
+
+**New Components:**
+- `SearchInput` - Debounced search with clear button
+- `SortDropdown` - Native select styled for Steam theme
+- `FilterSidebar` - Platform/genre checkboxes
+- `useFilterParams` - URL state management hook
+- `useFilterOptions` - Filter options from API with caching
+
+**Test Coverage:**
+- 84 passing client unit tests
+- 37 passing server unit tests
+- 47 passing Playwright E2E tests (19 new for filters)
 
 ---
 
@@ -134,20 +169,16 @@ DATABASE_PATH=./data/games.db
 
 ---
 
-## What's Next: Phase 2
+## What's Next: Phase 4
 
-**Goal:** "I can browse my games in a Steam-like grid"
+**Goal:** "I can organize games into custom collections"
 
-Build the React frontend:
-1. React app structure and routing
-2. Dark theme (CSS variables or Tailwind)
-3. Grid view with game covers
-4. Hover states on game cards
-5. Platform badges (Steam icon, etc.)
-6. Lazy loading for 2400+ games
-7. Basic responsive layout
-
-**UI Reference:** Steam library grid view, medium density
+Build collections system:
+1. Collections data model and API
+2. Create/Edit/Delete collections
+3. Add games to collections
+4. Collection sidebar
+5. Smart filters (saved filter presets)
 
 ---
 
@@ -156,11 +187,12 @@ Build the React frontend:
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1 | Foundation + Steam Import | ✅ Complete |
-| 2 | Library Grid UI | 🔲 Next |
-| 3 | Filtering, Collections, Search | 🔲 Pending |
-| 4 | AI Curator (Gemini 3 Pro) | 🔲 Pending |
-| 5 | Detail Pages + Subscription Catalogs | 🔲 Pending |
-| 6 | Polish + Deployment | 🔲 Pending |
+| 2 | Library Grid UI | ✅ Complete |
+| 3 | Filtering, Search & Sort | ✅ Complete |
+| 4 | Collections & Smart Filters | 🔲 Next |
+| 5 | AI Curator (Gemini 3 Pro) | 🔲 Pending |
+| 6 | Detail Pages + Subscription Catalogs | 🔲 Pending |
+| 7 | Polish + Deployment | 🔲 Pending |
 
 ---
 
@@ -186,8 +218,9 @@ Build the React frontend:
 1. Read this file (`CLAUDE.md`) for quick context
 2. Check `PROGRESS.md` for task checklist and current phase
 3. Reference `PRODUCT.md` for full product spec if needed
-4. Start server: `npm run dev:server`
-5. Continue with next phase
+4. Start both servers: `npm run dev`
+5. Run tests: `npm test && npm run e2e`
+6. Continue with next phase
 
 ---
 
@@ -242,36 +275,7 @@ npm run e2e:report               # View HTML report
 
 Uses your actual Windows Chrome via CDP connection from WSL. **Best for debugging and manual verification.**
 
-**Step 1: Check if bridge is running:**
-```bash
-WINDOWS_IP=$(ip route | grep default | awk '{print $3}')
-nc -zv $WINDOWS_IP 19222 2>&1 | grep -q "succeeded" && echo "Bridge running" || echo "Bridge not running"
-```
-
-**Step 2: Start the bridge if needed (run from WSL, don't ask user):**
-```bash
-powershell.exe -ExecutionPolicy Bypass -File "C:\Users\Tony\projects\claude-chrome-bridge\windows-host\start-all.ps1"
-```
-
-**Step 3: Verify it's running:**
-```bash
-sleep 3
-nc -zv $WINDOWS_IP 19222
-```
-
-**Important:** Always run these checks automatically when Chrome Bridge testing is requested. Do not ask the user to start the bridge manually.
-
-**Available MCP Tools:**
-
-| Tool | Description |
-|------|-------------|
-| `mcp__claude-in-chrome__tabs_context_mcp` | Get browser tabs |
-| `mcp__claude-in-chrome__navigate` | Navigate to URL |
-| `mcp__claude-in-chrome__computer` | Screenshot, click, type, scroll |
-| `mcp__claude-in-chrome__get_page_text` | Extract page text |
-| `mcp__claude-in-chrome__javascript_tool` | Execute JavaScript |
-| `mcp__claude-in-chrome__find` | Find elements on page |
-| `mcp__claude-in-chrome__form_input` | Fill form fields |
+Use the `/browser` skill for Chrome Bridge commands. The skill includes setup instructions and available actions.
 
 **Pros:**
 - Tests your actual browser with extensions, settings, cookies
@@ -291,7 +295,7 @@ nc -zv $WINDOWS_IP 19222
 |----------|------|
 | Automated regression tests | Playwright |
 | CI/CD pipeline | Playwright |
-| Quick manual verification | Chrome Bridge |
-| Interactive debugging | Chrome Bridge |
-| Testing with extensions | Chrome Bridge |
-| Visual issue investigation | Chrome Bridge |
+| Quick manual verification | Chrome Bridge (`/browser`) |
+| Interactive debugging | Chrome Bridge (`/browser`) |
+| Testing with extensions | Chrome Bridge (`/browser`) |
+| Visual issue investigation | Chrome Bridge (`/browser`) |

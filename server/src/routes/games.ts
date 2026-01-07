@@ -3,18 +3,77 @@ import {
   getAllGames,
   getGameById,
   getGameCount,
+  getDistinctGenres,
+  getDistinctPlatforms,
   type GameQueryOptions,
 } from '../db/repositories/gameRepository.js';
 
 const router = Router();
 
+// Sort options configuration
+const SORT_OPTIONS = [
+  { id: 'title-asc', label: 'Title A-Z', sortBy: 'title', sortOrder: 'asc' },
+  { id: 'title-desc', label: 'Title Z-A', sortBy: 'title', sortOrder: 'desc' },
+  { id: 'release-desc', label: 'Release Date (Newest)', sortBy: 'release_date', sortOrder: 'desc' },
+  { id: 'release-asc', label: 'Release Date (Oldest)', sortBy: 'release_date', sortOrder: 'asc' },
+  { id: 'metacritic-desc', label: 'Metacritic Score', sortBy: 'metacritic_score', sortOrder: 'desc' },
+  { id: 'added-desc', label: 'Date Added', sortBy: 'created_at', sortOrder: 'desc' },
+] as const;
+
+// Static platform list (these are the supported platforms)
+const STATIC_PLATFORMS = ['steam', 'gamepass', 'eaplay', 'ubisoftplus'];
+
+// GET /api/games/filters - Get filter options
+router.get('/filters', (_req, res) => {
+  try {
+    // Get platforms from DB or use static list
+    const dbPlatforms = getDistinctPlatforms();
+    const platforms = dbPlatforms.length > 0 ? dbPlatforms : STATIC_PLATFORMS;
+
+    // Get genres from DB (cached)
+    const genres = getDistinctGenres();
+
+    res.json({
+      success: true,
+      data: {
+        platforms,
+        genres,
+        sortOptions: SORT_OPTIONS,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching filter options:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Helper to parse CSV params
+function parseCSVParam(value: string | undefined): string[] {
+  if (!value) return [];
+  return value.split(',').map(v => v.trim()).filter(v => v.length > 0);
+}
+
 // GET /api/games - List all games with filtering
 router.get('/', (req, res) => {
   try {
+    // Parse multi-select params (plural takes precedence over singular)
+    const platformsParam = req.query.platforms as string | undefined;
+    const platformParam = req.query.platform as string | undefined;
+    const platforms = parseCSVParam(platformsParam) || parseCSVParam(platformParam);
+
+    const genresParam = req.query.genres as string | undefined;
+    const genreParam = req.query.genre as string | undefined;
+    const genres = parseCSVParam(genresParam) || parseCSVParam(genreParam);
+
     const options: GameQueryOptions = {
       search: req.query.search as string | undefined,
-      platform: req.query.platform as string | undefined,
-      genre: req.query.genre as string | undefined,
+      platforms: platforms.length > 0 ? platforms : undefined,
+      platform: !platforms.length ? (platformParam || undefined) : undefined,
+      genres: genres.length > 0 ? genres : undefined,
+      genre: !genres.length ? (genreParam || undefined) : undefined,
       tag: req.query.tag as string | undefined,
       sortBy: req.query.sortBy as GameQueryOptions['sortBy'],
       sortOrder: req.query.sortOrder as GameQueryOptions['sortOrder'],

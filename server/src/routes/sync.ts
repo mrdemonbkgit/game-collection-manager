@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { syncSteamLibrary, quickSyncSteamLibrary } from '../services/steamService.js';
-import { clearAllGames, getGameCount } from '../db/repositories/gameRepository.js';
+import { clearAllGames, getGameCount, clearGenreCache } from '../db/repositories/gameRepository.js';
 
 const router = Router();
 
@@ -31,6 +31,9 @@ router.post('/steam', async (req, res) => {
         });
 
     console.log('Steam sync complete:', result);
+
+    // Clear genre cache to pick up new genres
+    clearGenreCache();
 
     res.json({
       success: true,
@@ -66,6 +69,9 @@ router.post('/steam/quick', async (_req, res) => {
     });
 
     console.log('Quick Steam sync complete:', result);
+
+    // Clear genre cache to pick up new genres
+    clearGenreCache();
 
     res.json({
       success: true,

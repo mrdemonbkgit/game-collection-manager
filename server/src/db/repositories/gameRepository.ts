@@ -222,7 +222,9 @@ export function getGameBySteamAppId(steamAppId: number): GameWithPlatforms | nul
 
 export interface GameQueryOptions {
   platform?: string;
+  platforms?: string[];  // Multi-select support
   genre?: string;
+  genres?: string[];     // Multi-select support
   tag?: string;
   search?: string;
   sortBy?: 'title' | 'release_date' | 'metacritic_score' | 'created_at';
@@ -242,9 +244,12 @@ export function getAllGames(options: GameQueryOptions = {}): { games: GameRow[];
     params.push(`%${options.search}%`);
   }
 
-  if (options.genre) {
-    conditions.push("genres LIKE ?");
-    params.push(`%"${options.genre}"%`);
+  // Support both singular (genre) and plural (genres) params
+  const genreList = options.genres?.length ? options.genres : (options.genre ? [options.genre] : []);
+  if (genreList.length > 0) {
+    const genreConditions = genreList.map(() => "genres LIKE ?");
+    conditions.push(`(${genreConditions.join(' OR ')})`);
+    genreList.forEach(g => params.push(`%"${g}"%`));
   }
 
   if (options.tag) {
@@ -252,11 +257,14 @@ export function getAllGames(options: GameQueryOptions = {}): { games: GameRow[];
     params.push(`%"${options.tag}"%`);
   }
 
-  if (options.platform) {
+  // Support both singular (platform) and plural (platforms) params
+  const platformList = options.platforms?.length ? options.platforms : (options.platform ? [options.platform] : []);
+  if (platformList.length > 0) {
+    const placeholders = platformList.map(() => '?').join(', ');
     conditions.push(`
-      id IN (SELECT game_id FROM game_platforms WHERE platform_type = ?)
+      id IN (SELECT game_id FROM game_platforms WHERE platform_type IN (${placeholders}))
     `);
-    params.push(options.platform);
+    platformList.forEach(p => params.push(p));
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -300,4 +308,49 @@ export function clearAllGames(): void {
   const db = getDatabase();
   db.exec('DELETE FROM game_platforms');
   db.exec('DELETE FROM games');
+}
+
+// Genre cache with 1 hour TTL
+let genreCache: { genres: string[]; timestamp: number } | null = null;
+const GENRE_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+export function getDistinctGenres(): string[] {
+  // Check cache first
+  if (genreCache && Date.now() - genreCache.timestamp < GENRE_CACHE_TTL) {
+    return genreCache.genres;
+  }
+
+  const db = getDatabase();
+  const stmt = db.prepare("SELECT genres FROM games WHERE genres != '[]'");
+  const rows = stmt.all() as { genres: string }[];
+
+  // Extract unique genres from JSON arrays
+  const genreSet = new Set<string>();
+  for (const row of rows) {
+    try {
+      const parsed = JSON.parse(row.genres) as string[];
+      parsed.forEach(g => genreSet.add(g));
+    } catch {
+      // Skip invalid JSON
+    }
+  }
+
+  // Sort alphabetically
+  const genres = Array.from(genreSet).sort((a, b) => a.localeCompare(b));
+
+  // Update cache
+  genreCache = { genres, timestamp: Date.now() };
+
+  return genres;
+}
+
+export function clearGenreCache(): void {
+  genreCache = null;
+}
+
+export function getDistinctPlatforms(): string[] {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT DISTINCT platform_type FROM game_platforms ORDER BY platform_type');
+  const rows = stmt.all() as { platform_type: string }[];
+  return rows.map(r => r.platform_type);
 }

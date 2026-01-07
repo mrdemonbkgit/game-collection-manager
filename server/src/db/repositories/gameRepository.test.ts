@@ -39,6 +39,11 @@ describe('gameRepository', () => {
     it('should trim leading and trailing hyphens', () => {
       assert.strictEqual(createSlug('---Game---'), 'game');
     });
+
+    it('should handle suffix', () => {
+      assert.strictEqual(createSlug('Test Game', 12345), 'test-game-12345');
+      assert.strictEqual(createSlug('Test Game', 'suffix'), 'test-game-suffix');
+    });
   });
 
   describe('insertGame', () => {
@@ -81,6 +86,20 @@ describe('gameRepository', () => {
       assert.strictEqual(game?.title, 'Full Game');
       assert.strictEqual(game?.metacritic_score, 85);
       assert.deepStrictEqual(JSON.parse(game?.genres || '[]'), ['Action', 'RPG']);
+    });
+
+    it('should handle null optional fields', () => {
+      const input: CreateGameInput = {
+        title: 'Minimal Game',
+        slug: 'minimal-game',
+      };
+
+      const id = insertGame(input);
+      const game = getGameById(id);
+
+      assert.strictEqual(game?.cover_image_url, null);
+      assert.strictEqual(game?.description, null);
+      assert.strictEqual(game?.metacritic_score, null);
     });
   });
 
@@ -126,6 +145,28 @@ describe('gameRepository', () => {
       assert.strictEqual(game?.title, 'Updated Title');
       assert.strictEqual(game?.metacritic_score, 85);
     });
+
+    it('should preserve slug on update', () => {
+      const input1: CreateGameInput = {
+        title: 'Original',
+        slug: 'original-slug',
+        steamAppId: 33333,
+      };
+
+      upsertGameBySteamAppId(input1);
+
+      const input2: CreateGameInput = {
+        title: 'Updated',
+        slug: 'new-slug',
+        steamAppId: 33333,
+      };
+
+      const id = upsertGameBySteamAppId(input2);
+      const game = getGameById(id);
+
+      // Slug should remain original since we only update, not insert
+      assert.strictEqual(game?.slug, 'original-slug');
+    });
   });
 
   describe('addGamePlatform', () => {
@@ -156,6 +197,21 @@ describe('gameRepository', () => {
 
       const game = getGameById(gameId);
       assert.strictEqual(game?.platforms.length, 2);
+    });
+
+    it('should replace existing platform entry', () => {
+      const gameId = insertGame({
+        title: 'Platform Update Game',
+        slug: 'platform-update-game',
+        steamAppId: 55555,
+      });
+
+      addGamePlatform(gameId, 'steam', '55555', false);
+      addGamePlatform(gameId, 'steam', '55555', true);
+
+      const game = getGameById(gameId);
+      assert.strictEqual(game?.platforms.length, 1);
+      assert.strictEqual(game?.platforms[0].is_primary, 1);
     });
   });
 
@@ -246,6 +302,11 @@ describe('gameRepository', () => {
       const { games: page2 } = getAllGames({ limit: 2, offset: 2 });
       assert.strictEqual(page2.length, 1);
     });
+
+    it('should use default values when options not provided', () => {
+      const { games } = getAllGames({});
+      assert.strictEqual(games.length, 3);
+    });
   });
 
   describe('getGameCount', () => {
@@ -288,6 +349,16 @@ describe('gameRepository', () => {
       clearAllGames();
 
       assert.strictEqual(getGameCount(), 0);
+    });
+
+    it('should also clear game platforms', () => {
+      const id = insertGame({ title: 'Game', slug: 'game', steamAppId: 12345 });
+      addGamePlatform(id, 'steam', '12345', true);
+
+      clearAllGames();
+
+      const game = getGameById(id);
+      assert.strictEqual(game, null);
     });
   });
 });
