@@ -354,3 +354,84 @@ export function getDistinctPlatforms(): string[] {
   const rows = stmt.all() as { platform_type: string }[];
   return rows.map(r => r.platform_type);
 }
+
+/**
+ * Get all games that don't have genre data (genres = '[]')
+ */
+export function getGamesWithoutGenres(): Array<{ id: number; steamAppId: number; title: string }> {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT id, steam_app_id as steamAppId, title
+    FROM games
+    WHERE genres = '[]' AND steam_app_id IS NOT NULL
+  `);
+  return stmt.all() as Array<{ id: number; steamAppId: number; title: string }>;
+}
+
+/**
+ * Update genres and tags for a game by Steam App ID
+ */
+export function updateGameMetadata(
+  steamAppId: number,
+  genres: string[],
+  tags: string[]
+): boolean {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    UPDATE games
+    SET genres = ?, tags = ?, updated_at = datetime('now')
+    WHERE steam_app_id = ?
+  `);
+  const result = stmt.run(JSON.stringify(genres), JSON.stringify(tags), steamAppId);
+  return result.changes > 0;
+}
+
+// Acronyms that should stay uppercase
+const GENRE_ACRONYMS = new Set(['RPG', 'MMO', 'MMORPG', 'FPS', 'RTS', 'VR', 'AR', 'PVP', 'PVE', 'DLC']);
+
+function normalizeGenreString(genre: string): string {
+  return genre
+    .split(' ')
+    .map((word) => {
+      const upper = word.toUpperCase();
+      if (GENRE_ACRONYMS.has(upper)) {
+        return upper;
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(' ');
+}
+
+/**
+ * Normalize all genre strings in the database to consistent Title Case
+ */
+export function normalizeAllGenres(): number {
+  const db = getDatabase();
+
+  // Get all games with genres
+  const selectStmt = db.prepare("SELECT id, genres FROM games WHERE genres != '[]'");
+  const rows = selectStmt.all() as { id: number; genres: string }[];
+
+  const updateStmt = db.prepare("UPDATE games SET genres = ? WHERE id = ?");
+
+  let updated = 0;
+  for (const row of rows) {
+    try {
+      const genres = JSON.parse(row.genres) as string[];
+      const normalized = genres.map(normalizeGenreString);
+
+      const newJson = JSON.stringify(normalized);
+      if (newJson !== row.genres) {
+        updateStmt.run(newJson, row.id);
+        updated++;
+      }
+    } catch {
+      // Skip invalid JSON
+    }
+  }
+
+  // Clear genre cache
+  clearGenreCache();
+
+  return updated;
+}

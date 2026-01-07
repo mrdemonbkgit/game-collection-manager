@@ -87,7 +87,7 @@ export default function FilterSidebar({
                   No genres available — run full Steam sync
                 </p>
               ) : (
-                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                <div className="space-y-2">
                   {genres.map((genre) => (
                     <label
                       key={genre}
