@@ -192,6 +192,7 @@ export interface CoverFixHistoryItem {
   title: string;
   slug?: string;
   triedGridIds: number[];
+  triedUrls: string[];
   attemptCount: number;
   lastTryTime: number;
 }

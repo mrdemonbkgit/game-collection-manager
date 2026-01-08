@@ -22,6 +22,7 @@ const TRIED_COVERS_FILE = path.resolve(process.cwd(), 'data', 'cover-fix-history
 
 export interface CoverFixHistoryEntry {
   gridIds: number[];
+  triedUrls: string[]; // URLs that have been downloaded
   lastTryTime: number; // Unix timestamp in ms
 }
 
@@ -36,17 +37,22 @@ function loadTriedCovers(): CoverFixHistory {
   try {
     if (fs.existsSync(TRIED_COVERS_FILE)) {
       const raw = JSON.parse(fs.readFileSync(TRIED_COVERS_FILE, 'utf-8')) as OldCoverFixHistory;
-      // Migrate old format (array) to new format (object with gridIds and lastTryTime)
+      // Migrate old format (array) to new format (object with gridIds, triedUrls, and lastTryTime)
       const migrated: CoverFixHistory = {};
       let needsMigration = false;
       for (const [gameId, value] of Object.entries(raw)) {
         if (Array.isArray(value)) {
-          // Old format - migrate
-          migrated[gameId] = { gridIds: value, lastTryTime: Date.now() };
+          // Old format (just array of gridIds) - migrate
+          migrated[gameId] = { gridIds: value, triedUrls: [], lastTryTime: Date.now() };
           needsMigration = true;
         } else {
-          // New format
-          migrated[gameId] = value;
+          // New format - ensure triedUrls exists
+          if (!value.triedUrls) {
+            migrated[gameId] = { ...value, triedUrls: [] };
+            needsMigration = true;
+          } else {
+            migrated[gameId] = value;
+          }
         }
       }
       if (needsMigration) {
@@ -68,22 +74,29 @@ function saveTriedCovers(history: CoverFixHistory): void {
   fs.writeFileSync(TRIED_COVERS_FILE, JSON.stringify(history, null, 2));
 }
 
-function addTriedCover(gameId: number, gridId: number): void {
+function addTriedCover(gameId: number, gridId: number, url: string): void {
   const history = loadTriedCovers();
   const key = String(gameId);
   if (!history[key]) {
-    history[key] = { gridIds: [], lastTryTime: Date.now() };
+    history[key] = { gridIds: [], triedUrls: [], lastTryTime: Date.now() };
   }
   if (!history[key].gridIds.includes(gridId)) {
     history[key].gridIds.push(gridId);
+  }
+  if (!history[key].triedUrls.includes(url)) {
+    history[key].triedUrls.push(url);
   }
   history[key].lastTryTime = Date.now();
   saveTriedCovers(history);
 }
 
-function getTriedCovers(gameId: number): number[] {
+function getTriedCovers(gameId: number): { gridIds: number[]; urls: string[] } {
   const history = loadTriedCovers();
-  return history[String(gameId)]?.gridIds || [];
+  const entry = history[String(gameId)];
+  return {
+    gridIds: entry?.gridIds || [],
+    urls: entry?.triedUrls || [],
+  };
 }
 
 export function clearTriedCovers(gameId: number): void {
@@ -549,10 +562,10 @@ export async function fixSingleCover(
     const searchQuery = searchTerm || gameTitle;
     console.log(`[SteamGridDB] Searching for "${searchQuery}" (gameId: ${gameId})...`);
 
-    // Get list of previously tried grid IDs for this game
-    const triedGridIds = getTriedCovers(gameId);
+    // Get list of previously tried grid IDs and URLs for this game
+    const { gridIds: triedGridIds, urls: triedUrls } = getTriedCovers(gameId);
     if (triedGridIds.length > 0) {
-      console.log(`[SteamGridDB] Previously tried ${triedGridIds.length} covers for this game`);
+      console.log(`[SteamGridDB] Previously tried ${triedGridIds.length} covers (${triedUrls.length} unique URLs) for this game`);
     }
 
     // Search for the game
@@ -585,12 +598,16 @@ export async function fixSingleCover(
       };
     }
 
-    // Select best grid (excluding previously tried ones)
-    const bestGrid = selectBestGrid(grids, triedGridIds);
+    // Filter out grids with URLs we've already tried
+    const gridsWithNewUrls = grids.filter(g => !triedUrls.includes(g.url));
+    console.log(`[SteamGridDB] ${gridsWithNewUrls.length} grids with new URLs (filtered ${grids.length - gridsWithNewUrls.length} duplicates)`);
+
+    // Select best grid (excluding previously tried ones by ID and URL)
+    const bestGrid = selectBestGrid(gridsWithNewUrls, triedGridIds);
 
     if (!bestGrid) {
-      const availableCount = grids.length - triedGridIds.length;
-      console.log(`[SteamGridDB] ❌ No more covers to try (${triedGridIds.length} tried, ${availableCount} remaining)`);
+      const availableCount = gridsWithNewUrls.length;
+      console.log(`[SteamGridDB] ❌ No more covers to try (${triedGridIds.length} grid IDs tried, ${triedUrls.length} URLs tried, ${availableCount} remaining)`);
       return {
         success: false,
         gameId,
@@ -621,8 +638,8 @@ export async function fixSingleCover(
     console.log(`[SteamGridDB] ✅ Downloaded to: ${downloadResult.localPath}`);
 
     // Track this grid as tried (so next fix attempt uses a different one)
-    addTriedCover(gameId, bestGrid.id);
-    console.log(`[SteamGridDB] 📝 Recorded grid #${bestGrid.id} as tried`);
+    addTriedCover(gameId, bestGrid.id, bestGrid.url);
+    console.log(`[SteamGridDB] 📝 Recorded grid #${bestGrid.id} and URL as tried`);
 
     // Update the game's cover URL in database to use local path
     const localUrl = `/covers/${gameId}${downloadResult.localPath?.match(/\.[^.]+$/)?.[0] || '.jpg'}`;

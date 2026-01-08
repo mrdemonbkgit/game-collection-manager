@@ -1394,6 +1394,7 @@ router.get('/covers/fix-history', (_req, res) => {
         title: game?.title || `Unknown Game #${gameId}`,
         slug: game?.slug,
         triedGridIds: entry.gridIds,
+        triedUrls: entry.triedUrls || [],
         attemptCount: entry.gridIds.length,
         lastTryTime: entry.lastTryTime,
       };
