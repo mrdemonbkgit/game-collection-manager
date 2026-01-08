@@ -14,6 +14,11 @@ build/
 data/*.db
 *.db
 
+# Cached assets
+server/data/covers/
+server/data/heroes/
+server/data/logos/
+
 
 # IDE
 .vscode/
