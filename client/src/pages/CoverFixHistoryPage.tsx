@@ -5,6 +5,20 @@ import {
   type CoverFixHistoryItem,
 } from '../services/syncService';
 
+function formatTimeAgo(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return 'just now';
+}
+
 export default function CoverFixHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,8 +140,8 @@ export default function CoverFixHistoryPage() {
                   <h3 className="text-steam-text font-medium truncate text-sm">
                     {item.title}
                   </h3>
-                  <p className="text-steam-text-muted text-xs mt-1 truncate">
-                    Grid IDs: {item.triedGridIds.join(', ')}
+                  <p className="text-steam-text-muted text-xs mt-1">
+                    {formatTimeAgo(item.lastTryTime)}
                   </p>
                 </div>
               </Link>

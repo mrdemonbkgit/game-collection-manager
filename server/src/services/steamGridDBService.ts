@@ -20,14 +20,39 @@ const RATE_LIMIT_DELAY = 250; // 250ms between requests (4 req/sec)
 // Track which SteamGridDB grid IDs have been tried per game
 const TRIED_COVERS_FILE = path.resolve(process.cwd(), 'data', 'cover-fix-history.json');
 
-export interface CoverFixHistory {
-  [gameId: string]: number[]; // Array of tried SGDB grid IDs
+export interface CoverFixHistoryEntry {
+  gridIds: number[];
+  lastTryTime: number; // Unix timestamp in ms
 }
+
+export interface CoverFixHistory {
+  [gameId: string]: CoverFixHistoryEntry;
+}
+
+// Old format for migration
+type OldCoverFixHistory = { [gameId: string]: number[] | CoverFixHistoryEntry };
 
 function loadTriedCovers(): CoverFixHistory {
   try {
     if (fs.existsSync(TRIED_COVERS_FILE)) {
-      return JSON.parse(fs.readFileSync(TRIED_COVERS_FILE, 'utf-8'));
+      const raw = JSON.parse(fs.readFileSync(TRIED_COVERS_FILE, 'utf-8')) as OldCoverFixHistory;
+      // Migrate old format (array) to new format (object with gridIds and lastTryTime)
+      const migrated: CoverFixHistory = {};
+      let needsMigration = false;
+      for (const [gameId, value] of Object.entries(raw)) {
+        if (Array.isArray(value)) {
+          // Old format - migrate
+          migrated[gameId] = { gridIds: value, lastTryTime: Date.now() };
+          needsMigration = true;
+        } else {
+          // New format
+          migrated[gameId] = value;
+        }
+      }
+      if (needsMigration) {
+        saveTriedCovers(migrated);
+      }
+      return migrated;
     }
   } catch {
     // Ignore errors, start fresh
@@ -47,17 +72,18 @@ function addTriedCover(gameId: number, gridId: number): void {
   const history = loadTriedCovers();
   const key = String(gameId);
   if (!history[key]) {
-    history[key] = [];
+    history[key] = { gridIds: [], lastTryTime: Date.now() };
   }
-  if (!history[key].includes(gridId)) {
-    history[key].push(gridId);
+  if (!history[key].gridIds.includes(gridId)) {
+    history[key].gridIds.push(gridId);
   }
+  history[key].lastTryTime = Date.now();
   saveTriedCovers(history);
 }
 
 function getTriedCovers(gameId: number): number[] {
   const history = loadTriedCovers();
-  return history[String(gameId)] || [];
+  return history[String(gameId)]?.gridIds || [];
 }
 
 export function clearTriedCovers(gameId: number): void {

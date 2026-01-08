@@ -1388,14 +1388,16 @@ router.get('/covers/fix-history', (_req, res) => {
 
     const items = gameIds.map(gameId => {
       const game = gameMap.get(gameId);
+      const entry = history[String(gameId)];
       return {
         gameId,
         title: game?.title || `Unknown Game #${gameId}`,
         slug: game?.slug,
-        triedGridIds: history[String(gameId)],
-        attemptCount: history[String(gameId)]?.length || 0,
+        triedGridIds: entry.gridIds,
+        attemptCount: entry.gridIds.length,
+        lastTryTime: entry.lastTryTime,
       };
-    }).sort((a, b) => b.attemptCount - a.attemptCount); // Sort by most attempts first
+    }).sort((a, b) => b.lastTryTime - a.lastTryTime); // Sort by most recent first
 
     res.json({
       success: true,
