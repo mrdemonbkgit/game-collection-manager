@@ -65,14 +65,12 @@ export default function GameGrid({
   useStateLogger('GameGrid', 'hasMore', hasMore);
   useStateLogger('GameGrid', 'gamesLength', games.length);
 
-  // Keep refs in sync with props (runs after render, no cascade)
-  useEffect(() => {
-    loadingRef.current = loading;
-    hasMoreRef.current = hasMore;
-    gamesLengthRef.current = games.length;
-    onLoadMoreRef.current = onLoadMore;
-    debug.log('info', 'GameGrid refs synced', { loading, hasMore, gamesLength: games.length });
-  });
+  // Sync refs immediately during render (not in useEffect which runs after)
+  // This ensures handleItemsRendered sees current values when called by react-window
+  loadingRef.current = loading;
+  hasMoreRef.current = hasMore;
+  gamesLengthRef.current = games.length;
+  onLoadMoreRef.current = onLoadMore;
 
   // Stable callback - uses refs so no dependency changes
   const handleItemsRendered = useCallback(
@@ -86,11 +84,10 @@ export default function GameGrid({
         columnCount: columnCountRef.current,
       }]);
 
-      // Guard: don't load if already loading or no more data
-      if (loadingRef.current) {
-        debug.log('info', 'GameGrid.handleItemsRendered: SKIPPED (loading)');
-        return;
-      }
+      // Guard: don't load if no more data
+      // Note: We don't check loadingRef here because it causes a race condition.
+      // The useEffect that syncs loadingRef runs AFTER render, but handleItemsRendered
+      // is called BY react-window during render. loadMore() has its own guard.
       if (!hasMoreRef.current) {
         debug.log('info', 'GameGrid.handleItemsRendered: SKIPPED (no more data)');
         return;

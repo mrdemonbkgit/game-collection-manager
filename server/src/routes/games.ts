@@ -8,6 +8,7 @@ import {
   getDistinctPlatforms,
   deleteGame,
   getPlatformsForGames,
+  updateGameCover,
   type GameQueryOptions,
 } from '../db/repositories/gameRepository.js';
 
@@ -198,6 +199,39 @@ router.get('/:id', (req, res) => {
     res.json({ success: true, data: parsedGame });
   } catch (error) {
     console.error('Error fetching game:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// PATCH /api/games/:id/cover - Update game cover
+router.patch('/:id/cover', (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { coverUrl } = req.body;
+
+    if (isNaN(id)) {
+      res.status(400).json({ success: false, error: 'Invalid game ID' });
+      return;
+    }
+
+    if (!coverUrl || typeof coverUrl !== 'string') {
+      res.status(400).json({ success: false, error: 'coverUrl is required' });
+      return;
+    }
+
+    const updated = updateGameCover(id, coverUrl);
+
+    if (!updated) {
+      res.status(404).json({ success: false, error: 'Game not found' });
+      return;
+    }
+
+    res.json({ success: true, data: { updated: true, coverUrl } });
+  } catch (error) {
+    console.error('Error updating game cover:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

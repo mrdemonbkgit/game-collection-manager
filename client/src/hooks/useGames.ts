@@ -14,7 +14,6 @@ interface UseGamesResult {
 }
 
 const PAGE_SIZE = 50;
-const THROTTLE_MS = 200;
 
 export function useGames(
   params: Omit<FetchGamesParams, 'page' | 'pageSize'> = {}
@@ -45,9 +44,8 @@ export function useGames(
     debug.log('info', 'useGames: params changed', params);
   }
 
-  // Refs to prevent duplicate requests
+  // Ref to prevent duplicate in-flight requests
   const isLoadingMoreRef = useRef(false);
-  const lastLoadTimeRef = useRef(0);
 
   const hasMore = games.length < total;
 
@@ -58,16 +56,8 @@ export function useGames(
       console.log('[useGames] loadGames called:', { pageNum, append, params: paramsRef.current });
       debug.logCallback('useGames', 'loadGames', [{ pageNum, append, isLoadingMore: isLoadingMoreRef.current }]);
 
-      // Throttle check for appending only
-      const now = Date.now();
-      const timeSinceLastLoad = now - lastLoadTimeRef.current;
-      if (append && timeSinceLastLoad < THROTTLE_MS) {
-        debug.log('info', `useGames.loadGames: THROTTLED (${timeSinceLastLoad}ms since last)`);
-        return;
-      }
-      lastLoadTimeRef.current = now;
-
       // Prevent duplicate in-flight requests for append
+      // Note: Throttling is handled by GameGrid's handleItemsRendered callback
       if (append && isLoadingMoreRef.current) {
         debug.log('info', 'useGames.loadGames: SKIPPED (already loading)');
         return;
@@ -146,6 +136,19 @@ export function useGames(
     setTotal(0);
     loadGames(1, false);
   }, [paramsJson, loadGames]); // loadGames is stable (empty deps)
+
+  // Auto-load more when we're near the end and data just loaded
+  // This handles the case where scroll position doesn't trigger handleItemsRendered
+  useEffect(() => {
+    if (!loading && hasMore && games.length > 0 && total > 0) {
+      // If we've loaded 90%+ of the data but there's still more, auto-load next page
+      const loadedRatio = games.length / total;
+      if (loadedRatio >= 0.9) {
+        debug.log('info', 'useGames: Auto-loading next page (near end of data)');
+        loadMore();
+      }
+    }
+  }, [loading, hasMore, games.length, total, loadMore]);
 
   return { games, total, loading, error, hasMore, loadMore, refresh };
 }
