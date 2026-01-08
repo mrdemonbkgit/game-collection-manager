@@ -898,34 +898,46 @@ const ASSET_CACHE_HOURS = 24;
  */
 export async function getHeroAndLogo(gameId: number): Promise<SteamGridAssets> {
   // 1. Check for locally cached assets first (fastest)
-  const localHero = getLocalAssetUrl(gameId, 'hero');
-  const localLogo = getLocalAssetUrl(gameId, 'logo');
+  let localHero = getLocalAssetUrl(gameId, 'hero');
+  let localLogo = getLocalAssetUrl(gameId, 'logo');
 
-  if (localHero || localLogo) {
+  // 2. Check DB cache for remote URLs
+  const cached = getCachedAssets(gameId);
+
+  // If we have both local files, return immediately
+  if (localHero && localLogo) {
+    return { heroUrl: localHero, logoUrl: localLogo, cached: true };
+  }
+
+  // If we're missing local files but have DB cache, download the missing ones
+  if (cached.heroUrl || cached.logoUrl) {
+    const needsHeroDownload = !localHero && cached.heroUrl;
+    const needsLogoDownload = !localLogo && cached.logoUrl;
+
+    if (needsHeroDownload || needsLogoDownload) {
+      console.log(`[SteamGridDB] Downloading cached assets locally for game ${gameId}`);
+      const { heroLocalUrl, logoLocalUrl } = await downloadGameAssets(
+        gameId,
+        needsHeroDownload ? cached.heroUrl : null,
+        needsLogoDownload ? cached.logoUrl : null
+      );
+
+      // Update local URLs with downloaded files
+      if (heroLocalUrl) localHero = heroLocalUrl;
+      if (logoLocalUrl) localLogo = logoLocalUrl;
+    }
+
+    // Return what we have (local preferred, remote as fallback)
     return {
-      heroUrl: localHero,
-      logoUrl: localLogo,
+      heroUrl: localHero || cached.heroUrl,
+      logoUrl: localLogo || cached.logoUrl,
       cached: true,
     };
   }
 
-  // 2. Check DB cache for remote URLs (might need to download)
-  const cached = getCachedAssets(gameId);
-
-  // If we have cached remote URLs, download them locally
-  if (cached.heroUrl || cached.logoUrl) {
-    console.log(`[SteamGridDB] Downloading cached assets locally for game ${gameId}`);
-    const { heroLocalUrl, logoLocalUrl } = await downloadGameAssets(
-      gameId,
-      cached.heroUrl,
-      cached.logoUrl
-    );
-
-    return {
-      heroUrl: heroLocalUrl || cached.heroUrl,
-      logoUrl: logoLocalUrl || cached.logoUrl,
-      cached: true,
-    };
+  // If we have any local files from previous attempts, return them
+  if (localHero || localLogo) {
+    return { heroUrl: localHero, logoUrl: localLogo, cached: true };
   }
 
   // If we recently checked and found nothing, don't re-query
