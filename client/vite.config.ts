@@ -15,6 +15,14 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      '/heroes': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/logos': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
   build: {
