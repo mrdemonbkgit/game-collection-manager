@@ -10,6 +10,7 @@ import {
   getGamesWithHorizontalCovers,
   updateGameCover,
 } from '../db/repositories/gameRepository.js';
+import { downloadCover } from './localCoverService.js';
 
 const API_BASE = 'https://www.steamgriddb.com/api/v2';
 const RATE_LIMIT_DELAY = 250; // 250ms between requests (4 req/sec)
@@ -447,11 +448,13 @@ export async function fixSingleCover(
 ): Promise<FixCoverResult> {
   try {
     const searchQuery = searchTerm || gameTitle;
+    console.log(`[SteamGridDB] Searching for "${searchQuery}" (gameId: ${gameId})...`);
 
     // Search for the game
     const sgdbGame = await searchGame(searchQuery);
 
     if (!sgdbGame) {
+      console.log(`[SteamGridDB] ❌ Not found on SteamGridDB: "${searchQuery}"`);
       return {
         success: false,
         gameId,
@@ -459,11 +462,15 @@ export async function fixSingleCover(
       };
     }
 
+    console.log(`[SteamGridDB] Found: "${sgdbGame.name}" (SGDB ID: ${sgdbGame.id})`);
+
     // Get grids for the game
     await delay(RATE_LIMIT_DELAY);
     const grids = await getGrids(sgdbGame.id);
+    console.log(`[SteamGridDB] Found ${grids.length} 600x900 grids`);
 
     if (grids.length === 0) {
+      console.log(`[SteamGridDB] ❌ No 600x900 covers available`);
       return {
         success: false,
         gameId,
@@ -477,6 +484,7 @@ export async function fixSingleCover(
     const bestGrid = selectBestGrid(grids);
 
     if (!bestGrid) {
+      console.log(`[SteamGridDB] ❌ No suitable cover found (all filtered out)`);
       return {
         success: false,
         gameId,
@@ -486,17 +494,40 @@ export async function fixSingleCover(
       };
     }
 
-    // Update the game's cover URL in database
-    updateGameCover(gameId, bestGrid.url);
+    console.log(`[SteamGridDB] Selected grid: score=${bestGrid.score}, style=${bestGrid.style}, ${bestGrid.width}x${bestGrid.height}`);
+    console.log(`[SteamGridDB] URL: ${bestGrid.url}`);
+
+    // Download the cover to local cache
+    console.log(`[SteamGridDB] Downloading cover to local cache...`);
+    const downloadResult = await downloadCover(gameId, bestGrid.url);
+
+    if (!downloadResult.success) {
+      console.log(`[SteamGridDB] ❌ Download failed: ${downloadResult.error}`);
+      return {
+        success: false,
+        gameId,
+        error: `Download failed: ${downloadResult.error}`,
+        steamGridDBId: sgdbGame.id,
+        steamGridDBName: sgdbGame.name,
+      };
+    }
+
+    console.log(`[SteamGridDB] ✅ Downloaded to: ${downloadResult.localPath}`);
+
+    // Update the game's cover URL in database to use local path
+    const localUrl = `/covers/${gameId}${downloadResult.localPath?.match(/\.[^.]+$/)?.[0] || '.jpg'}`;
+    updateGameCover(gameId, localUrl);
+    console.log(`[SteamGridDB] ✅ Updated database: ${localUrl}`);
 
     return {
       success: true,
       gameId,
-      coverUrl: bestGrid.url,
+      coverUrl: localUrl,
       steamGridDBId: sgdbGame.id,
       steamGridDBName: sgdbGame.name,
     };
   } catch (error) {
+    console.error(`[SteamGridDB] ❌ Error fixing cover for ${gameId}:`, error);
     return {
       success: false,
       gameId,
