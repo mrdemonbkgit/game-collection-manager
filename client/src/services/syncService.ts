@@ -99,6 +99,12 @@ export async function getCoverFixHistory(): Promise<CoverFixHistoryResponse> {
   return response.data;
 }
 
+export async function clearCoverFixHistory(gameId: number): Promise<void> {
+  await fetchApi<{ success: boolean }>(`/sync/covers/fix-history/${gameId}`, {
+    method: 'DELETE',
+  });
+}
+
 // ============================================================================
 // Subscription Catalog Import
 // ============================================================================

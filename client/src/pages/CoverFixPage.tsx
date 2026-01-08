@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   fixCoverFromSteamGridDB,
   getCoverFixHistory,
+  clearCoverFixHistory,
   type CoverFixHistoryItem,
 } from '../services/syncService';
 import { fetchApi } from '../services/api';
@@ -92,6 +93,34 @@ export default function CoverFixPage() {
         gameId,
         success: false,
         message: err instanceof Error ? err.message : 'Failed to fix cover',
+      });
+    } finally {
+      setFixingId(null);
+    }
+  };
+
+  const handleClearAndRetry = async (gameId: number, title: string) => {
+    setFixingId(gameId);
+    setFixResult(null);
+    try {
+      // Clear the fix history first
+      await clearCoverFixHistory(gameId);
+      // Then try to fix again
+      const result = await fixCoverFromSteamGridDB(gameId, title);
+      setFixResult({
+        gameId,
+        success: result.success,
+        message: result.success ? 'Cover updated!' : (result.error || 'Failed'),
+      });
+      // Update timestamp to refresh cover image
+      setCoverTimestamps(prev => new Map(prev).set(gameId, Date.now()));
+      // Refresh history
+      await fetchHistory();
+    } catch (err) {
+      setFixResult({
+        gameId,
+        success: false,
+        message: err instanceof Error ? err.message : 'Failed',
       });
     } finally {
       setFixingId(null);
@@ -262,6 +291,17 @@ export default function CoverFixPage() {
                     >
                       {isFixing ? 'Fixing...' : 'Fix Cover'}
                     </button>
+
+                    {/* Clear & Retry Button - shown when all covers have been tried */}
+                    {result && !result.success && result.message.includes('have been tried') && (
+                      <button
+                        onClick={() => handleClearAndRetry(game.id, game.title)}
+                        disabled={isFixing}
+                        className="mt-1 w-full px-3 py-1.5 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Clear & Retry
+                      </button>
+                    )}
 
                     {/* Tried URLs */}
                     {history && history.triedUrls.length > 0 && (

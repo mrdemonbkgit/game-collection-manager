@@ -34,6 +34,7 @@ import {
   fixSingleCover,
   fixMultipleCovers,
   getCoverFixHistory,
+  clearTriedCovers,
   type SteamGridDBProgress,
   type SteamGridDBResult,
 } from '../services/steamGridDBService.js';
@@ -1153,6 +1154,33 @@ router.get('/covers/fix-batch/status', (_req, res) => {
     });
   } catch (error) {
     console.error('Error getting batch fix status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// DELETE /api/sync/covers/fix-history/:gameId - Clear fix history for a specific game
+router.delete('/covers/fix-history/:gameId', (req, res) => {
+  try {
+    const gameId = parseInt(req.params.gameId, 10);
+    if (isNaN(gameId)) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid game ID',
+      });
+      return;
+    }
+
+    clearTriedCovers(gameId);
+
+    res.json({
+      success: true,
+      message: `Cleared fix history for game ${gameId}`,
+    });
+  } catch (error) {
+    console.error('Error clearing fix history:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

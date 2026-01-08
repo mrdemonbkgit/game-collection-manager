@@ -207,12 +207,16 @@
   },
   "184": {
     "gridIds": [
-      49483
+      49483,
+      36555,
+      77812
     ],
     "triedUrls": [
-      "https://cdn2.steamgriddb.com/grid/7ef6079edd98eeec1e24f71b5278eed8.png"
+      "https://cdn2.steamgriddb.com/grid/7ef6079edd98eeec1e24f71b5278eed8.png",
+      "https://cdn2.steamgriddb.com/grid/131efc3e9dc6088e07ffe4a4c0b2997d.png",
+      "https://cdn2.steamgriddb.com/grid/2b7459b9fea7259c75d498a1fcb4dcc4.png"
     ],
-    "lastTryTime": 1767884871159
+    "lastTryTime": 1767887567968
   },
   "188": {
     "gridIds": [
@@ -1058,12 +1062,14 @@
   },
   "765": {
     "gridIds": [
-      77509
+      77509,
+      39836
     ],
     "triedUrls": [
-      "https://cdn2.steamgriddb.com/grid/8c0bed3bc5676d0a55fee0c77517d685.png"
+      "https://cdn2.steamgriddb.com/grid/8c0bed3bc5676d0a55fee0c77517d685.png",
+      "https://cdn2.steamgriddb.com/grid/b64e021126c832bb29ec9fa988155eaf.jpg"
     ],
-    "lastTryTime": 1767884949289
+    "lastTryTime": 1767887600871
   },
   "771": {
     "gridIds": [
@@ -2036,6 +2042,15 @@
     ],
     "lastTryTime": 1767886312810
   },
+  "1411": {
+    "gridIds": [
+      46865
+    ],
+    "triedUrls": [
+      "https://cdn2.steamgriddb.com/grid/497e696f0076a1639552cda77ca799e9.png"
+    ],
+    "lastTryTime": 1767887478983
+  },
   "1414": {
     "gridIds": [
       67892
@@ -2162,6 +2177,15 @@
       "https://cdn2.steamgriddb.com/grid/5604ac4699c9f8db548f11fc1feff851.png"
     ],
     "lastTryTime": 1767884827929
+  },
+  "1515": {
+    "gridIds": [
+      50088
+    ],
+    "triedUrls": [
+      "https://cdn2.steamgriddb.com/grid/9d9b6df568499e7a2b1e4091229913f3.png"
+    ],
+    "lastTryTime": 1767887595871
   },
   "1518": {
     "gridIds": [
@@ -2330,6 +2354,15 @@
     ],
     "lastTryTime": 1767884854221
   },
+  "1607": {
+    "gridIds": [
+      189580
+    ],
+    "triedUrls": [
+      "https://cdn2.steamgriddb.com/grid/bd814e51d1261bca5bc936f97b905075.png"
+    ],
+    "lastTryTime": 1767887587661
+  },
   "1609": {
     "gridIds": [
       189808,
@@ -2463,7 +2496,7 @@
     "triedUrls": [
       "https://cdn2.steamgriddb.com/grid/f9499392bb42ffe70ba67972d7aad331.png"
     ],
-    "lastTryTime": 1767887226905
+    "lastTryTime": 1767887663030
   },
   "2446": {
     "gridIds": [
