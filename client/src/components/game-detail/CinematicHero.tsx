@@ -19,9 +19,12 @@ export function CinematicHero({
   onAddToCollection,
 }: CinematicHeroProps) {
   // Background image priority: hero > first screenshot > Steam header > gradient
-  const backgroundUrl = heroUrl
-    || game.screenshots[0]
+  // Only use fallbacks AFTER assets have finished loading to avoid flash
+  const fallbackUrl = game.screenshots[0]
     || (game.steamAppId ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.steamAppId}/header.jpg` : null);
+
+  // If still loading assets, don't show fallback yet (prevents flash)
+  const backgroundUrl = heroUrl || (assetsLoading ? null : fallbackUrl);
 
   // Format playtime
   const playtimeHours = Math.floor(game.playtimeMinutes / 60);
@@ -29,18 +32,19 @@ export function CinematicHero({
 
   return (
     <div className="relative min-h-[50vh] lg:min-h-[60vh] overflow-hidden">
-      {/* Background Image */}
-      {backgroundUrl ? (
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${backgroundUrl})` }}
-        >
-          {/* Dark overlay for readability */}
-          <div className="absolute inset-0 bg-black/40" />
-        </div>
-      ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-steam-bg via-steam-bg-card to-steam-bg" />
-      )}
+      {/* Background Image with smooth transition */}
+      <div
+        className="absolute inset-0 bg-cover bg-center transition-opacity duration-500"
+        style={{
+          backgroundImage: backgroundUrl ? `url(${backgroundUrl})` : 'none',
+          opacity: backgroundUrl ? 1 : 0,
+        }}
+      >
+        {/* Dark overlay for readability */}
+        <div className="absolute inset-0 bg-black/40" />
+      </div>
+      {/* Gradient fallback (always behind) */}
+      <div className="absolute inset-0 bg-gradient-to-br from-steam-bg via-steam-bg-card to-steam-bg -z-10" />
 
       {/* Gradient overlay at bottom */}
       <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-steam-bg via-steam-bg/80 to-transparent" />
@@ -48,21 +52,19 @@ export function CinematicHero({
       {/* Content Container */}
       <div className="relative z-10 flex flex-col justify-end min-h-[50vh] lg:min-h-[60vh] max-w-7xl mx-auto px-4 pb-8">
         {/* Logo or Title */}
-        <div className="mb-4">
+        <div className="mb-4 min-h-[2.5rem] lg:min-h-[3rem]">
           {logoUrl ? (
             <img
               src={logoUrl}
               alt={game.title}
-              className="max-h-32 lg:max-h-40 w-auto drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]"
+              className="max-h-32 lg:max-h-40 w-auto drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] animate-fade-in"
             />
-          ) : (
+          ) : !assetsLoading ? (
+            // Only show text fallback AFTER assets finished loading
             <h1 className="text-4xl lg:text-5xl font-bold text-white drop-shadow-lg">
               {game.title}
             </h1>
-          )}
-          {assetsLoading && (
-            <div className="mt-2 text-steam-text-muted text-sm">Loading assets...</div>
-          )}
+          ) : null}
         </div>
 
         {/* Ownership & Playtime Bar */}
