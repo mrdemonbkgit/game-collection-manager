@@ -191,19 +191,25 @@ function titlesMatch(title1: string, title2: string): boolean {
 
   if (norm1 === norm2) return true;
 
-  // One contains the other
+  // One contains the other - but require the shorter to be at least 40% of the longer
+  // This prevents "ALPHA" from matching "Alpha Kimori Episode One"
   if (norm1.includes(norm2) || norm2.includes(norm1)) {
     const shorter = norm1.length < norm2.length ? norm1 : norm2;
-    if (shorter.length >= 4) return true;
+    const longer = norm1.length < norm2.length ? norm2 : norm1;
+    const ratio = shorter.length / longer.length;
+    if (ratio >= 0.4) return true;
   }
 
-  // Check word overlap
+  // Check word overlap - require high similarity
   const words1 = new Set(norm1.split(' ').filter(w => w.length > 2));
   const words2 = new Set(norm2.split(' ').filter(w => w.length > 2));
+
+  if (words1.size === 0 || words2.size === 0) return false;
+
   const intersection = [...words1].filter(w => words2.has(w));
   const similarity = intersection.length / Math.max(words1.size, words2.size);
 
-  return similarity >= 0.7;
+  return similarity >= 0.6;
 }
 
 /**
