@@ -14,8 +14,6 @@ build/
 data/*.db
 *.db
 
-# Local cover cache
-data/covers/
 
 # IDE
 .vscode/
