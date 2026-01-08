@@ -159,9 +159,11 @@ router.get('/slug/:slug', (req, res) => {
       return;
     }
 
-    // Parse JSON fields
+    // Parse JSON fields and use local cover when available
+    const localCover = getLocalCoverUrl(game.id);
     const parsedGame = {
       ...game,
+      cover_image_url: localCover || game.cover_image_url,
       screenshots: JSON.parse(game.screenshots),
       genres: JSON.parse(game.genres),
       tags: JSON.parse(game.tags),
@@ -194,9 +196,11 @@ router.get('/:id', (req, res) => {
       return;
     }
 
-    // Parse JSON fields
+    // Parse JSON fields and use local cover when available
+    const localCover = getLocalCoverUrl(game.id);
     const parsedGame = {
       ...game,
+      cover_image_url: localCover || game.cover_image_url,
       screenshots: JSON.parse(game.screenshots),
       genres: JSON.parse(game.genres),
       tags: JSON.parse(game.tags),
