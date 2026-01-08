@@ -191,6 +191,19 @@ function titlesMatch(title1: string, title2: string): boolean {
 
   if (norm1 === norm2) return true;
 
+  // Extract numbers from both titles - these must match for sports games, sequels, etc.
+  const numbers1 = norm1.match(/\d+/g) || [];
+  const numbers2 = norm2.match(/\d+/g) || [];
+
+  // If both have numbers, they must have at least one in common
+  // This prevents "Madden NFL 24" from matching "Madden NFL 26"
+  if (numbers1.length > 0 && numbers2.length > 0) {
+    const numSet1 = new Set(numbers1);
+    const numSet2 = new Set(numbers2);
+    const hasCommonNumber = [...numSet1].some(n => numSet2.has(n));
+    if (!hasCommonNumber) return false;
+  }
+
   // One contains the other - but require the shorter to be at least 40% of the longer
   // This prevents "ALPHA" from matching "Alpha Kimori Episode One"
   if (norm1.includes(norm2) || norm2.includes(norm1)) {
@@ -201,8 +214,9 @@ function titlesMatch(title1: string, title2: string): boolean {
   }
 
   // Check word overlap - require high similarity
-  const words1 = new Set(norm1.split(' ').filter(w => w.length > 2));
-  const words2 = new Set(norm2.split(' ').filter(w => w.length > 2));
+  // Keep numbers in word list regardless of length
+  const words1 = new Set(norm1.split(' ').filter(w => w.length > 2 || /^\d+$/.test(w)));
+  const words2 = new Set(norm2.split(' ').filter(w => w.length > 2 || /^\d+$/.test(w)));
 
   if (words1.size === 0 || words2.size === 0) return false;
 
