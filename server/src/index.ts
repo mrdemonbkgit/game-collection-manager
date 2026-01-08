@@ -13,6 +13,7 @@ import syncRouter from './routes/sync.js';
 import logsRouter from './routes/logs.js';
 import collectionsRouter from './routes/collections.js';
 import { ensureCoversDir } from './services/localCoverService.js';
+import { ensureAssetDirs } from './services/localAssetsService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -24,11 +25,26 @@ app.use(express.json());
 // Initialize database
 initDatabase();
 
-// Ensure covers directory exists and serve static files
+// Ensure asset directories exist and serve static files
 ensureCoversDir();
+ensureAssetDirs();
+
 const coversPath = path.resolve(process.cwd(), 'data', 'covers');
+const heroesPath = path.resolve(process.cwd(), 'data', 'heroes');
+const logosPath = path.resolve(process.cwd(), 'data', 'logos');
+
 app.use('/covers', express.static(coversPath, {
   maxAge: '7d', // Cache covers for 7 days
+  immutable: true,
+}));
+
+app.use('/heroes', express.static(heroesPath, {
+  maxAge: '7d', // Cache heroes for 7 days
+  immutable: true,
+}));
+
+app.use('/logos', express.static(logosPath, {
+  maxAge: '7d', // Cache logos for 7 days
   immutable: true,
 }));
 

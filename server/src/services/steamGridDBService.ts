@@ -17,6 +17,7 @@ import {
   getGameById,
 } from '../db/repositories/gameRepository.js';
 import { downloadCover } from './localCoverService.js';
+import { downloadGameAssets, getLocalAssetUrl } from './localAssetsService.js';
 
 const API_BASE = 'https://www.steamgriddb.com/api/v2';
 const RATE_LIMIT_DELAY = 250; // 250ms between requests (4 req/sec)
@@ -893,27 +894,51 @@ const ASSET_CACHE_HOURS = 24;
 
 /**
  * Get hero and logo images for a game from SteamGridDB
- * Uses caching to avoid repeated API calls
+ * Downloads assets locally for faster loading and returns local URLs
  */
 export async function getHeroAndLogo(gameId: number): Promise<SteamGridAssets> {
-  // 1. Check DB cache first
+  // 1. Check for locally cached assets first (fastest)
+  const localHero = getLocalAssetUrl(gameId, 'hero');
+  const localLogo = getLocalAssetUrl(gameId, 'logo');
+
+  if (localHero || localLogo) {
+    return {
+      heroUrl: localHero,
+      logoUrl: localLogo,
+      cached: true,
+    };
+  }
+
+  // 2. Check DB cache for remote URLs (might need to download)
   const cached = getCachedAssets(gameId);
 
-  // If we have cached data and it's recent, return it
+  // If we have cached remote URLs, download them locally
+  if (cached.heroUrl || cached.logoUrl) {
+    console.log(`[SteamGridDB] Downloading cached assets locally for game ${gameId}`);
+    const { heroLocalUrl, logoLocalUrl } = await downloadGameAssets(
+      gameId,
+      cached.heroUrl,
+      cached.logoUrl
+    );
+
+    return {
+      heroUrl: heroLocalUrl || cached.heroUrl,
+      logoUrl: logoLocalUrl || cached.logoUrl,
+      cached: true,
+    };
+  }
+
+  // If we recently checked and found nothing, don't re-query
   if (cached.assetsCheckedAt) {
     const checkedAt = new Date(cached.assetsCheckedAt);
     const hoursAgo = (Date.now() - checkedAt.getTime()) / (1000 * 60 * 60);
 
     if (hoursAgo < ASSET_CACHE_HOURS) {
-      return {
-        heroUrl: cached.heroUrl,
-        logoUrl: cached.logoUrl,
-        cached: true,
-      };
+      return { heroUrl: null, logoUrl: null, cached: true };
     }
   }
 
-  // 2. Get game info
+  // 3. Get game info
   const game = getGameById(gameId);
   if (!game) {
     return { heroUrl: null, logoUrl: null, cached: false };
@@ -921,7 +946,7 @@ export async function getHeroAndLogo(gameId: number): Promise<SteamGridAssets> {
 
   console.log(`[SteamGridDB] Fetching hero/logo for "${game.title}" (ID: ${gameId})`);
 
-  // 3. Lookup by steamAppId first (more accurate)
+  // 4. Lookup by steamAppId first (more accurate)
   let steamGridId: number | null = cached.steamgridId;
 
   if (!steamGridId && game.steam_app_id) {
@@ -930,7 +955,7 @@ export async function getHeroAndLogo(gameId: number): Promise<SteamGridAssets> {
     await delay(RATE_LIMIT_DELAY);
   }
 
-  // 4. Fallback to title search
+  // 5. Fallback to title search
   if (!steamGridId) {
     console.log(`[SteamGridDB] Falling back to title search: "${game.title}"`);
     const sgdbGame = await searchGame(game.title);
@@ -947,7 +972,7 @@ export async function getHeroAndLogo(gameId: number): Promise<SteamGridAssets> {
 
   console.log(`[SteamGridDB] Found SteamGridDB ID: ${steamGridId}`);
 
-  // 5. Fetch heroes and logos in parallel
+  // 6. Fetch heroes and logos in parallel
   const [heroes, logos] = await Promise.all([
     fetchHeroes(steamGridId),
     fetchLogos(steamGridId),
@@ -955,17 +980,29 @@ export async function getHeroAndLogo(gameId: number): Promise<SteamGridAssets> {
 
   console.log(`[SteamGridDB] Found ${heroes.length} heroes, ${logos.length} logos`);
 
-  const heroUrl = selectBestAsset(heroes)?.url || null;
-  const logoUrl = selectBestAsset(logos)?.url || null;
+  const remoteHeroUrl = selectBestAsset(heroes)?.url || null;
+  const remoteLogoUrl = selectBestAsset(logos)?.url || null;
 
-  // 6. Cache in DB
+  // 7. Download assets locally
+  const { heroLocalUrl, logoLocalUrl } = await downloadGameAssets(
+    gameId,
+    remoteHeroUrl,
+    remoteLogoUrl
+  );
+
+  // 8. Cache remote URLs in DB (as backup reference)
   updateGameAssets(gameId, {
     steamgridId: steamGridId,
-    heroUrl,
-    logoUrl,
+    heroUrl: remoteHeroUrl,
+    logoUrl: remoteLogoUrl,
   });
 
-  console.log(`[SteamGridDB] ✅ Cached assets for game ${gameId}`);
+  console.log(`[SteamGridDB] ✅ Downloaded and cached assets for game ${gameId}`);
 
-  return { heroUrl, logoUrl, cached: false };
+  // Return local URLs (or remote as fallback)
+  return {
+    heroUrl: heroLocalUrl || remoteHeroUrl,
+    logoUrl: logoLocalUrl || remoteLogoUrl,
+    cached: false,
+  };
 }
