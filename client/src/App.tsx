@@ -2,8 +2,7 @@ import { Routes, Route } from 'react-router-dom';
 import LibraryPage from './pages/LibraryPage';
 import GameDetailPage from './pages/GameDetailPage';
 import AdminPage from './pages/AdminPage';
-import CoverAuditPage from './pages/CoverAuditPage';
-import CoverFixHistoryPage from './pages/CoverFixHistoryPage';
+import CoverFixPage from './pages/CoverFixPage';
 
 function App() {
   return (
@@ -12,8 +11,7 @@ function App() {
         <Route path="/" element={<LibraryPage />} />
         <Route path="/game/:slug" element={<GameDetailPage />} />
         <Route path="/admin" element={<AdminPage />} />
-        <Route path="/admin/covers" element={<CoverAuditPage />} />
-        <Route path="/admin/covers/history" element={<CoverFixHistoryPage />} />
+        <Route path="/admin/covers" element={<CoverFixPage />} />
       </Routes>
     </div>
   );

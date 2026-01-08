@@ -13,7 +13,6 @@ import syncRouter from './routes/sync.js';
 import logsRouter from './routes/logs.js';
 import collectionsRouter from './routes/collections.js';
 import { ensureCoversDir } from './services/localCoverService.js';
-import { destroyPool } from './services/coverAuditService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -62,10 +61,9 @@ const server = app.listen(PORT, () => {
 });
 
 // Graceful shutdown
-async function shutdown() {
+function shutdown() {
   console.log('Shutting down...');
-  server.close(async () => {
-    await destroyPool();
+  server.close(() => {
     closeDatabase();
     process.exit(0);
   });
