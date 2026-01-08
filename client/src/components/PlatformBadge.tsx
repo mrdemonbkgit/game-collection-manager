@@ -8,27 +8,31 @@ interface PlatformBadgeProps {
 
 const PLATFORM_CONFIG: Record<
   PlatformType,
-  { label: string; bgClass: string; icon: string }
+  { label: string; bgClass: string; icon: string; needsInvert: boolean }
 > = {
   steam: {
     label: 'Steam',
     bgClass: 'bg-platform-steam',
     icon: '/icons/steam.png',
+    needsInvert: false,
   },
   gamepass: {
     label: 'Game Pass',
     bgClass: 'bg-platform-gamepass',
     icon: '/icons/xbox.png',
+    needsInvert: true,
   },
   eaplay: {
     label: 'EA Play',
     bgClass: 'bg-platform-eaplay',
     icon: '/icons/ea.png',
+    needsInvert: true,
   },
   ubisoftplus: {
     label: 'Ubisoft+',
     bgClass: 'bg-platform-ubisoftplus',
-    icon: '/icons/ubisoft.png',
+    icon: '/icons/ubisoft-swirl.svg',
+    needsInvert: false,
   },
 };
 
@@ -67,7 +71,7 @@ export default function PlatformBadge({
       <img
         src={config.icon}
         alt={config.label}
-        className={`${sizeClasses.icon} object-contain brightness-0 invert`}
+        className={`${sizeClasses.icon} object-contain ${config.needsInvert ? 'brightness-0 invert' : ''}`}
       />
       {showLabel && <span>{config.label}</span>}
     </span>

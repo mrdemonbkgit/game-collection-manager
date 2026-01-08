@@ -37,12 +37,13 @@ function getImageUrl(
   }
 }
 
-// Platform icon mapping
-const PLATFORM_ICONS: Record<string, { src: string; alt: string }> = {
-  steam: { src: '/icons/steam.png', alt: 'Steam' },
-  gamepass: { src: '/icons/xbox.png', alt: 'Game Pass' },
-  eaplay: { src: '/icons/ea.png', alt: 'EA Play' },
-  ubisoftplus: { src: '/icons/ubisoft.png', alt: 'Ubisoft+' },
+// Platform icon mapping with background colors
+// needsInvert: true for dark icons that need to be made white
+const PLATFORM_ICONS: Record<string, { src: string; alt: string; bgClass: string; needsInvert: boolean }> = {
+  steam: { src: '/icons/steam.png', alt: 'Steam', bgClass: 'bg-platform-steam', needsInvert: false },
+  gamepass: { src: '/icons/xbox.png', alt: 'Game Pass', bgClass: 'bg-platform-gamepass', needsInvert: true },
+  eaplay: { src: '/icons/ea.png', alt: 'EA Play', bgClass: 'bg-platform-eaplay', needsInvert: true },
+  ubisoftplus: { src: '/icons/ubisoft-swirl.svg', alt: 'Ubisoft+', bgClass: 'bg-platform-ubisoftplus', needsInvert: false },
 };
 
 function GameCard({
@@ -112,13 +113,13 @@ function GameCard({
               return (
                 <div
                   key={platform.id}
-                  className="bg-steam-bg/80 rounded px-1 py-0.5"
+                  className={`${icon.bgClass} rounded px-1 py-0.5`}
                   title={icon.alt}
                 >
                   <img
                     src={icon.src}
                     alt={icon.alt}
-                    className="w-3.5 h-3.5"
+                    className={`w-3.5 h-3.5 ${icon.needsInvert ? 'brightness-0 invert' : ''}`}
                   />
                 </div>
               );
