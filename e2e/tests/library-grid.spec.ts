@@ -95,15 +95,16 @@ test.describe('Library Grid Tests', () => {
 
     test('cursor changes on hoverable elements', async ({ page }) => {
       const firstCard = page.locator('[data-testid="game-card"]').first();
+      const cardLink = firstCard.locator('a');
 
-      await firstCard.hover();
+      await cardLink.hover();
 
-      const cursor = await firstCard.evaluate((el) =>
+      const cursor = await cardLink.evaluate((el) =>
         window.getComputedStyle(el).cursor
       );
 
-      // Should have pointer cursor or similar interactive cursor
-      expect(['pointer', 'default']).toContain(cursor);
+      // Should have pointer cursor on the link
+      expect(cursor).toBe('pointer');
     });
   });
 

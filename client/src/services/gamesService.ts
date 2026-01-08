@@ -1,6 +1,8 @@
 import { fetchApi } from './api';
 import {
   GamesApiResponse,
+  GameApiResponse,
+  ApiResponse,
   PaginatedData,
   Game,
   transformGame,
@@ -89,4 +91,16 @@ export async function fetchFilterOptions(): Promise<FilterOptions> {
     data: FilterOptions;
   }>('/games/filters');
   return response.data;
+}
+
+export async function fetchGameBySlug(slug: string): Promise<Game> {
+  const response = await fetchApi<ApiResponse<GameApiResponse>>(
+    `/games/slug/${encodeURIComponent(slug)}`
+  );
+
+  if (!response.data) {
+    throw new Error('Game not found');
+  }
+
+  return transformGame(response.data);
 }

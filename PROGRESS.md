@@ -4,11 +4,11 @@ This file tracks the development progress of the Game Collection Manager app.
 
 ---
 
-## Current Phase: Phase 3 - Complete ✅
+## Current Phase: Phase 4 - Complete ✅
 
-**Milestone:** "I can find games quickly with filters and search"
+**Milestone:** "I can organize games into custom collections"
 
-**User's Library:** 2,420 games with search, sort, and filter capabilities
+**User's Library:** 2,420 games with collections, smart filters, search, sort, and filtering
 
 ---
 
@@ -97,19 +97,46 @@ This file tracks the development progress of the Game Collection Manager app.
 
 ---
 
+### Phase 4: Collections & Smart Filters ✅
+
+| Task | Status |
+|------|--------|
+| Collections data model and API | ✅ Complete |
+| Create/Edit/Delete collections | ✅ Complete |
+| Add games to collections | ✅ Complete |
+| Collection sidebar | ✅ Complete |
+| Smart filters (saved filter presets) | ✅ Complete |
+| Manage Collections modal | ✅ Complete |
+| Separate test database for E2E | ✅ Complete |
+
+**New Components:**
+- `CollectionModal` - Create/edit collections with smart filter option
+- `ManageCollectionsModal` - Edit and delete collections
+- `AddToCollectionDropdown` - Quick-add dropdown on game cards
+- `useCollections` - Collections data hook with caching
+
+**New API Endpoints:**
+- `GET /api/collections` - List all collections
+- `POST /api/collections` - Create collection
+- `PUT /api/collections/:id` - Update collection
+- `DELETE /api/collections/:id` - Delete collection
+- `POST /api/collections/:id/games/:gameId` - Add game to collection
+- `DELETE /api/collections/:id/games/:gameId` - Remove game from collection
+
+---
+
 ## Next Steps
 
-### Phase 4: Collections & Smart Filters
+### Phase 5: Detail Pages + Subscription Catalogs
 
-**Milestone:** "I can organize games into custom collections"
+**Milestone:** "I can see game details and add non-Steam games"
 
-- [ ] Collections data model and API
-- [ ] Create/Edit/Delete collections
-- [ ] Add games to collections
-- [ ] Collection sidebar
-- [ ] Smart filters (saved filter presets)
+- [ ] Game detail page with metadata
+- [ ] Screenshots gallery
+- [ ] Community catalog import (Game Pass, EA Play, Ubisoft+)
+- [ ] Duplicate handling across platforms
 
-### Phase 5: AI Curator (Gemini 3 Pro)
+### Phase 6: AI Curator (Gemini 3 Pro)
 
 **Milestone:** "AI helps me decide what to play"
 
@@ -118,15 +145,6 @@ This file tracks the development progress of the Game Collection Manager app.
 - [ ] AI-powered natural language search
 - [ ] Suggestions panel
 - [ ] Command bar (quick queries)
-
-### Phase 6: Detail Pages + Subscription Catalogs
-
-**Milestone:** "I can see game details and add non-Steam games"
-
-- [ ] Game detail page with metadata
-- [ ] Screenshots gallery
-- [ ] Community catalog import (Game Pass, EA Play, Ubisoft+)
-- [ ] Duplicate handling across platforms
 
 ### Phase 7: Polish + Deployment
 

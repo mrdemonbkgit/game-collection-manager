@@ -2,9 +2,12 @@ import { Router } from 'express';
 import {
   getAllGames,
   getGameById,
+  getGameBySlug,
   getGameCount,
   getDistinctGenres,
   getDistinctPlatforms,
+  deleteGame,
+  getPlatformsForGames,
   type GameQueryOptions,
 } from '../db/repositories/gameRepository.js';
 
@@ -90,12 +93,17 @@ router.get('/', (req, res) => {
 
     const { games, total } = getAllGames(options);
 
-    // Parse JSON fields for response
+    // Get platforms for all games in one query
+    const gameIds = games.map((g) => g.id);
+    const platformsMap = getPlatformsForGames(gameIds);
+
+    // Parse JSON fields and add platforms for response
     const parsedGames = games.map((game) => ({
       ...game,
       screenshots: JSON.parse(game.screenshots),
       genres: JSON.parse(game.genres),
       tags: JSON.parse(game.tags),
+      platforms: platformsMap.get(game.id) || [],
     }));
 
     res.json({
@@ -131,6 +139,37 @@ router.get('/count', (_req, res) => {
   }
 });
 
+// GET /api/games/slug/:slug - Get single game by slug
+// IMPORTANT: This route MUST be before /:id to avoid slug being matched as an id
+router.get('/slug/:slug', (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    const game = getGameBySlug(slug);
+
+    if (!game) {
+      res.status(404).json({ success: false, error: 'Game not found' });
+      return;
+    }
+
+    // Parse JSON fields
+    const parsedGame = {
+      ...game,
+      screenshots: JSON.parse(game.screenshots),
+      genres: JSON.parse(game.genres),
+      tags: JSON.parse(game.tags),
+    };
+
+    res.json({ success: true, data: parsedGame });
+  } catch (error) {
+    console.error('Error fetching game by slug:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
 // GET /api/games/:id - Get single game by ID
 router.get('/:id', (req, res) => {
   try {
@@ -159,6 +198,33 @@ router.get('/:id', (req, res) => {
     res.json({ success: true, data: parsedGame });
   } catch (error) {
     console.error('Error fetching game:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// DELETE /api/games/:id - Delete a game by ID
+router.delete('/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+
+    if (isNaN(id)) {
+      res.status(400).json({ success: false, error: 'Invalid game ID' });
+      return;
+    }
+
+    const deleted = deleteGame(id);
+
+    if (!deleted) {
+      res.status(404).json({ success: false, error: 'Game not found' });
+      return;
+    }
+
+    res.json({ success: true, data: { deleted: true } });
+  } catch (error) {
+    console.error('Error deleting game:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

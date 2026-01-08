@@ -1,4 +1,5 @@
 import { memo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Game } from '../types/game';
 import { Collection } from '../types/collection';
 import AddToCollectionDropdown from './AddToCollectionDropdown';
@@ -36,14 +37,13 @@ function getImageUrl(
   }
 }
 
-// Simple Steam icon SVG
-function SteamIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
-      <path d="M12 2C6.48 2 2 6.48 2 12c0 4.84 3.44 8.87 8 9.8V15H8v-3h2V9.5C10 7.57 11.57 6 13.5 6H16v3h-2c-.55 0-1 .45-1 1v2h3l-.5 3H13v6.95c5.05-.5 9-4.76 9-9.95 0-5.52-4.48-10-10-10z" />
-    </svg>
-  );
-}
+// Platform icon mapping
+const PLATFORM_ICONS: Record<string, { src: string; alt: string }> = {
+  steam: { src: '/icons/steam.png', alt: 'Steam' },
+  gamepass: { src: '/icons/xbox.png', alt: 'Game Pass' },
+  eaplay: { src: '/icons/ea.png', alt: 'EA Play' },
+  ubisoftplus: { src: '/icons/ubisoft.png', alt: 'Ubisoft+' },
+};
 
 function GameCard({
   game,
@@ -71,9 +71,10 @@ function GameCard({
   };
 
   return (
-    <div data-testid="game-card" className="group relative w-full h-full cursor-pointer">
-      {/* Cover Image Container */}
-      <div className="relative w-full h-[calc(100%-28px)] bg-steam-bg-card rounded overflow-hidden">
+    <div data-testid="game-card" className="group relative w-full h-full">
+      <Link to={`/game/${game.slug}`} className="block cursor-pointer">
+        {/* Cover Image Container */}
+        <div className="relative w-full h-[calc(100%-28px)] bg-steam-bg-card rounded overflow-hidden">
         {showTextPlaceholder ? (
           // Text placeholder (fallback 3)
           <div className="w-full h-full flex items-center justify-center text-steam-text-muted text-xs p-2 text-center">
@@ -102,10 +103,26 @@ function GameCard({
         {/* Hover overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200 pointer-events-none" />
 
-        {/* Platform badge - Steam icon */}
-        {game.steamAppId && (
-          <div className="absolute top-1.5 left-1.5 bg-steam-bg/80 rounded px-1 py-0.5">
-            <SteamIcon className="w-3.5 h-3.5 text-steam-accent" />
+        {/* Platform badges - show all platforms */}
+        {game.platforms && game.platforms.length > 0 && (
+          <div className="absolute top-1.5 left-1.5 flex gap-1">
+            {game.platforms.map((platform) => {
+              const icon = PLATFORM_ICONS[platform.platformType];
+              if (!icon) return null;
+              return (
+                <div
+                  key={platform.id}
+                  className="bg-steam-bg/80 rounded px-1 py-0.5"
+                  title={icon.alt}
+                >
+                  <img
+                    src={icon.src}
+                    alt={icon.alt}
+                    className="w-3.5 h-3.5"
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -113,6 +130,7 @@ function GameCard({
         {showAddButton && (
           <button
             onClick={(e) => {
+              e.preventDefault();
               e.stopPropagation();
               setShowDropdown(!showDropdown);
             }}
@@ -138,7 +156,15 @@ function GameCard({
 
       </div>
 
-      {/* Collection dropdown - outside overflow-hidden container */}
+      {/* Title - fixed height, truncated */}
+      <div className="mt-1 px-0.5 h-6">
+        <h3 className="text-xs text-steam-text truncate group-hover:text-steam-accent transition-colors">
+          {game.title}
+        </h3>
+      </div>
+      </Link>
+
+      {/* Collection dropdown - outside Link to prevent navigation */}
       {showDropdown && onAddToCollection && (
         <AddToCollectionDropdown
           gameId={game.id}
@@ -148,13 +174,6 @@ function GameCard({
           onClose={() => setShowDropdown(false)}
         />
       )}
-
-      {/* Title - fixed height, truncated */}
-      <div className="mt-1 px-0.5 h-6">
-        <h3 className="text-xs text-steam-text truncate group-hover:text-steam-accent transition-colors">
-          {game.title}
-        </h3>
-      </div>
     </div>
   );
 }

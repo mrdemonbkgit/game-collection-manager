@@ -162,23 +162,22 @@ curl -X POST http://localhost:3001/api/sync/steam/quick
 ```env
 STEAM_API_KEY=<user's key>
 STEAM_USER_ID=76561198007320595
-GEMINI_API_KEY=<not set yet, Phase 4>
+GEMINI_API_KEY=<not set yet, Phase 6>
 PORT=3001
 DATABASE_PATH=./data/games.db
 ```
 
 ---
 
-## What's Next: Phase 4
+## What's Next: Phase 5
 
-**Goal:** "I can organize games into custom collections"
+**Goal:** "I can see game details and add non-Steam games"
 
-Build collections system:
-1. Collections data model and API
-2. Create/Edit/Delete collections
-3. Add games to collections
-4. Collection sidebar
-5. Smart filters (saved filter presets)
+Build detail pages and subscription catalogs:
+1. Game detail page with metadata
+2. Screenshots gallery
+3. Community catalog import (Game Pass, EA Play, Ubisoft+)
+4. Duplicate handling across platforms
 
 ---
 
@@ -189,9 +188,9 @@ Build collections system:
 | 1 | Foundation + Steam Import | ✅ Complete |
 | 2 | Library Grid UI | ✅ Complete |
 | 3 | Filtering, Search & Sort | ✅ Complete |
-| 4 | Collections & Smart Filters | 🔲 Next |
-| 5 | AI Curator (Gemini 3 Pro) | 🔲 Pending |
-| 6 | Detail Pages + Subscription Catalogs | 🔲 Pending |
+| 4 | Collections & Smart Filters | ✅ Complete |
+| 5 | Detail Pages + Subscription Catalogs | 🔲 Next |
+| 6 | AI Curator (Gemini 3 Pro) | 🔲 Pending |
 | 7 | Polish + Deployment | 🔲 Pending |
 
 ---

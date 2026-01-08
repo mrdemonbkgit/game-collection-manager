@@ -1,3 +1,24 @@
+// Platform types
+export type PlatformType = 'steam' | 'gamepass' | 'eaplay' | 'ubisoftplus';
+
+// Raw API response type for platforms (snake_case from server)
+export interface GamePlatformApiResponse {
+  id: number;
+  game_id: number;
+  platform_type: string;
+  platform_game_id: string;
+  is_primary: number;
+}
+
+// Client-side platform type (camelCase)
+export interface GamePlatform {
+  id: number;
+  gameId: number;
+  platformType: PlatformType;
+  platformGameId: string;
+  isPrimary: boolean;
+}
+
 // Raw API response types (snake_case from server)
 export interface GameApiResponse {
   id: number;
@@ -20,6 +41,7 @@ export interface GameApiResponse {
   playtime_minutes: number;
   created_at: string;
   updated_at: string;
+  platforms?: GamePlatformApiResponse[];
 }
 
 // Client-side model (camelCase)
@@ -44,6 +66,7 @@ export interface Game {
   playtimeMinutes: number;
   createdAt: string;
   updatedAt: string;
+  platforms: GamePlatform[];
 }
 
 // API response wrappers
@@ -86,5 +109,12 @@ export function transformGame(raw: GameApiResponse): Game {
     playtimeMinutes: raw.playtime_minutes ?? 0,
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,
+    platforms: (raw.platforms ?? []).map((p) => ({
+      id: p.id,
+      gameId: p.game_id,
+      platformType: p.platform_type as PlatformType,
+      platformGameId: p.platform_game_id,
+      isPrimary: p.is_primary === 1,
+    })),
   };
 }

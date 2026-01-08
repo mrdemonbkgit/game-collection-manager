@@ -192,6 +192,50 @@ export function addGamePlatform(
   stmt.run(gameId, platformType, platformGameId, isPrimary ? 1 : 0);
 }
 
+export function removeGamePlatform(gameId: number, platformType: string): boolean {
+  const db = getDatabase();
+
+  const stmt = db.prepare(`
+    DELETE FROM game_platforms WHERE game_id = ? AND platform_type = ?
+  `);
+
+  const result = stmt.run(gameId, platformType);
+  return result.changes > 0;
+}
+
+export function getGamesByPlatform(
+  platformType: string
+): Array<{ id: number; title: string; platformId: number }> {
+  const db = getDatabase();
+
+  const stmt = db.prepare(`
+    SELECT g.id, g.title, gp.id as platformId
+    FROM games g
+    JOIN game_platforms gp ON g.id = gp.game_id
+    WHERE gp.platform_type = ?
+    ORDER BY g.title
+  `);
+
+  return stmt.all(platformType) as Array<{ id: number; title: string; platformId: number }>;
+}
+
+export function deleteOrphanedGames(): number {
+  const db = getDatabase();
+
+  // Find and delete games with no platform associations
+  const stmt = db.prepare(`
+    DELETE FROM games
+    WHERE id IN (
+      SELECT g.id FROM games g
+      LEFT JOIN game_platforms gp ON g.id = gp.game_id
+      WHERE gp.id IS NULL
+    )
+  `);
+
+  const result = stmt.run();
+  return result.changes;
+}
+
 export function getGameById(id: number): GameWithPlatforms | null {
   const db = getDatabase();
 
@@ -218,6 +262,69 @@ export function getGameBySteamAppId(steamAppId: number): GameWithPlatforms | nul
   const platforms = platformsStmt.all(game.id) as unknown as GamePlatformRow[];
 
   return { ...game, platforms };
+}
+
+export function getGameBySlug(slug: string): GameWithPlatforms | null {
+  const db = getDatabase();
+
+  const gameStmt = db.prepare('SELECT * FROM games WHERE slug = ?');
+  const game = gameStmt.get(slug) as GameRow | undefined;
+
+  if (!game) return null;
+
+  const platformsStmt = db.prepare('SELECT * FROM game_platforms WHERE game_id = ?');
+  const platforms = platformsStmt.all(game.id) as unknown as GamePlatformRow[];
+
+  return { ...game, platforms };
+}
+
+/**
+ * Get platforms for multiple games at once (efficient batch query)
+ */
+export function getPlatformsForGames(gameIds: number[]): Map<number, GamePlatformRow[]> {
+  if (gameIds.length === 0) return new Map();
+
+  const db = getDatabase();
+  const placeholders = gameIds.map(() => '?').join(',');
+  const stmt = db.prepare(`SELECT * FROM game_platforms WHERE game_id IN (${placeholders})`);
+  const platforms = stmt.all(...gameIds) as unknown as GamePlatformRow[];
+
+  // Group platforms by game_id
+  const platformMap = new Map<number, GamePlatformRow[]>();
+  for (const platform of platforms) {
+    const existing = platformMap.get(platform.game_id) || [];
+    existing.push(platform);
+    platformMap.set(platform.game_id, existing);
+  }
+
+  return platformMap;
+}
+
+/**
+ * Find a game by title (case-insensitive match)
+ * Used for matching imported games with existing ones
+ */
+export function getGameByTitle(title: string): GameRow | null {
+  const db = getDatabase();
+
+  // Try exact match first (case-insensitive)
+  const exactStmt = db.prepare('SELECT * FROM games WHERE LOWER(title) = LOWER(?)');
+  const exactMatch = exactStmt.get(title) as GameRow | undefined;
+
+  if (exactMatch) return exactMatch;
+
+  // Try normalized match (remove special characters)
+  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+  const allGames = db.prepare('SELECT * FROM games').all() as unknown as GameRow[];
+
+  for (const game of allGames) {
+    const normalizedGameTitle = game.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+    if (normalizedGameTitle === normalizedTitle) {
+      return game;
+    }
+  }
+
+  return null;
 }
 
 export interface GameQueryOptions {
@@ -410,6 +517,74 @@ function normalizeGenreString(genre: string): string {
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     })
     .join(' ');
+}
+
+/**
+ * Get all games that don't have cover images
+ */
+export function getGamesWithoutCovers(): Array<{ id: number; title: string; steamAppId: number | null }> {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT id, title, steam_app_id as steamAppId
+    FROM games
+    WHERE cover_image_url IS NULL
+    ORDER BY title
+  `);
+  return stmt.all() as Array<{ id: number; title: string; steamAppId: number | null }>;
+}
+
+/**
+ * Get all games with horizontal (header.jpg) covers
+ */
+export function getGamesWithHorizontalCovers(): Array<{ id: number; title: string; steamAppId: number | null }> {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT id, title, steam_app_id as steamAppId
+    FROM games
+    WHERE cover_image_url LIKE '%header.jpg%'
+    ORDER BY title
+  `);
+  return stmt.all() as Array<{ id: number; title: string; steamAppId: number | null }>;
+}
+
+/**
+ * Update cover image URL for a game
+ */
+export function updateGameCover(gameId: number, coverUrl: string, steamAppId?: number): boolean {
+  const db = getDatabase();
+
+  if (steamAppId) {
+    // Check if this steam_app_id is already used by another game
+    const existingStmt = db.prepare('SELECT id FROM games WHERE steam_app_id = ? AND id != ?');
+    const existing = existingStmt.get(steamAppId, gameId);
+
+    if (existing) {
+      // Steam ID already in use - only update cover, not steam_app_id
+      const stmt = db.prepare(`
+        UPDATE games
+        SET cover_image_url = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `);
+      const result = stmt.run(coverUrl, gameId);
+      return result.changes > 0;
+    }
+
+    const stmt = db.prepare(`
+      UPDATE games
+      SET cover_image_url = ?, steam_app_id = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `);
+    const result = stmt.run(coverUrl, steamAppId, gameId);
+    return result.changes > 0;
+  } else {
+    const stmt = db.prepare(`
+      UPDATE games
+      SET cover_image_url = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `);
+    const result = stmt.run(coverUrl, gameId);
+    return result.changes > 0;
+  }
 }
 
 /**

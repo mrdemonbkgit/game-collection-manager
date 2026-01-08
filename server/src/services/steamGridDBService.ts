@@ -1,0 +1,426 @@
+/**
+ * SteamGridDB Service
+ *
+ * Fetches game cover images from SteamGridDB.com
+ * Used for games that don't have covers from Steam CDN.
+ */
+
+import {
+  getGamesWithoutCovers,
+  getGamesWithHorizontalCovers,
+  updateGameCover,
+} from '../db/repositories/gameRepository.js';
+
+const API_BASE = 'https://www.steamgriddb.com/api/v2';
+const RATE_LIMIT_DELAY = 250; // 250ms between requests (4 req/sec)
+
+interface SteamGridDBGame {
+  id: number;
+  name: string;
+  types: string[];
+  verified: boolean;
+}
+
+interface SteamGridDBGrid {
+  id: number;
+  score: number;
+  style: string;
+  width: number;
+  height: number;
+  nsfw: boolean;
+  humor: boolean;
+  notes: string | null;
+  mime: string;
+  language: string;
+  url: string;
+  thumb: string;
+  lock: boolean;
+  epilepsy: boolean;
+  upvotes: number;
+  downvotes: number;
+  author: {
+    name: string;
+    steam64: string;
+    avatar: string;
+  };
+}
+
+interface SearchResponse {
+  success: boolean;
+  data: SteamGridDBGame[];
+}
+
+interface GridsResponse {
+  success: boolean;
+  data: SteamGridDBGrid[];
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getApiKey(): string {
+  const apiKey = process.env.STEAMGRIDDB_API_KEY;
+  if (!apiKey) {
+    throw new Error('STEAMGRIDDB_API_KEY environment variable not set');
+  }
+  return apiKey;
+}
+
+/**
+ * Normalize a game title for comparison
+ */
+function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/['']/g, "'")
+    .replace(/[®™©]/g, '')
+    .replace(/[:\-–—]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9\s']/g, '')
+    .trim();
+}
+
+/**
+ * Check if two titles are a good match
+ */
+function titlesMatch(title1: string, title2: string): boolean {
+  const norm1 = normalizeTitle(title1);
+  const norm2 = normalizeTitle(title2);
+
+  if (norm1 === norm2) return true;
+
+  // One contains the other
+  if (norm1.includes(norm2) || norm2.includes(norm1)) {
+    const shorter = norm1.length < norm2.length ? norm1 : norm2;
+    if (shorter.length >= 4) return true;
+  }
+
+  // Check word overlap
+  const words1 = new Set(norm1.split(' ').filter(w => w.length > 2));
+  const words2 = new Set(norm2.split(' ').filter(w => w.length > 2));
+  const intersection = [...words1].filter(w => words2.has(w));
+  const similarity = intersection.length / Math.max(words1.size, words2.size);
+
+  return similarity >= 0.7;
+}
+
+/**
+ * Search for a game on SteamGridDB
+ */
+async function searchGame(title: string): Promise<SteamGridDBGame | null> {
+  try {
+    const apiKey = getApiKey();
+    const searchUrl = `${API_BASE}/search/autocomplete/${encodeURIComponent(title)}`;
+
+    const response = await fetch(searchUrl, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null;
+      }
+      console.warn(`SteamGridDB search failed for "${title}": ${response.status}`);
+      return null;
+    }
+
+    const data = (await response.json()) as SearchResponse;
+
+    if (!data.success || !data.data || data.data.length === 0) {
+      return null;
+    }
+
+    // Find best match
+    for (const game of data.data) {
+      if (titlesMatch(title, game.name)) {
+        return game;
+      }
+    }
+
+    // If no exact match, return first result if it's close enough
+    const firstResult = data.data[0];
+    if (titlesMatch(title, firstResult.name)) {
+      return firstResult;
+    }
+
+    return null;
+  } catch (error) {
+    console.warn(`Error searching SteamGridDB for "${title}":`, error);
+    return null;
+  }
+}
+
+/**
+ * Get grid images for a game
+ */
+async function getGrids(gameId: number): Promise<SteamGridDBGrid[]> {
+  try {
+    const apiKey = getApiKey();
+    // Request 600x900 grids (vertical covers) - dimensions parameter
+    const gridsUrl = `${API_BASE}/grids/game/${gameId}?dimensions=600x900`;
+
+    const response = await fetch(gridsUrl, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return [];
+      }
+      console.warn(`SteamGridDB grids failed for game ${gameId}: ${response.status}`);
+      return [];
+    }
+
+    const data = (await response.json()) as GridsResponse;
+
+    if (!data.success || !data.data) {
+      return [];
+    }
+
+    return data.data;
+  } catch (error) {
+    console.warn(`Error getting SteamGridDB grids for game ${gameId}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Get the best grid image for a game (prefer high score, non-NSFW, static images)
+ */
+function selectBestGrid(grids: SteamGridDBGrid[]): SteamGridDBGrid | null {
+  if (grids.length === 0) return null;
+
+  // Filter out NSFW and sort by score
+  const safeGrids = grids
+    .filter(g => !g.nsfw && !g.humor)
+    .sort((a, b) => b.score - a.score);
+
+  if (safeGrids.length > 0) {
+    return safeGrids[0];
+  }
+
+  // Fallback to any grid sorted by score
+  return grids.sort((a, b) => b.score - a.score)[0];
+}
+
+export interface SteamGridDBProgress {
+  total: number;
+  completed: number;
+  found: number;
+  notFound: number;
+  currentGame: string;
+}
+
+export interface SteamGridDBResult {
+  total: number;
+  found: number;
+  notFound: number;
+  details: Array<{
+    title: string;
+    status: 'found' | 'not_found';
+    steamGridDBId?: number;
+    steamGridDBName?: string;
+    coverUrl?: string;
+  }>;
+}
+
+/**
+ * Fetch covers from SteamGridDB for all games without covers
+ */
+export async function fetchCoversFromSteamGridDB(
+  onProgress?: (progress: SteamGridDBProgress) => void
+): Promise<SteamGridDBResult> {
+  const gamesWithoutCovers = getGamesWithoutCovers();
+
+  const result: SteamGridDBResult = {
+    total: gamesWithoutCovers.length,
+    found: 0,
+    notFound: 0,
+    details: [],
+  };
+
+  for (let i = 0; i < gamesWithoutCovers.length; i++) {
+    const game = gamesWithoutCovers[i];
+
+    if (onProgress) {
+      onProgress({
+        total: gamesWithoutCovers.length,
+        completed: i,
+        found: result.found,
+        notFound: result.notFound,
+        currentGame: game.title,
+      });
+    }
+
+    // Rate limit
+    if (i > 0) {
+      await delay(RATE_LIMIT_DELAY);
+    }
+
+    // Search for the game
+    const sgdbGame = await searchGame(game.title);
+
+    if (!sgdbGame) {
+      result.notFound++;
+      result.details.push({
+        title: game.title,
+        status: 'not_found',
+      });
+      continue;
+    }
+
+    // Get grids for the game
+    await delay(RATE_LIMIT_DELAY);
+    const grids = await getGrids(sgdbGame.id);
+
+    if (grids.length === 0) {
+      result.notFound++;
+      result.details.push({
+        title: game.title,
+        status: 'not_found',
+        steamGridDBId: sgdbGame.id,
+        steamGridDBName: sgdbGame.name,
+      });
+      continue;
+    }
+
+    // Select best grid
+    const bestGrid = selectBestGrid(grids);
+
+    if (bestGrid) {
+      updateGameCover(game.id, bestGrid.url);
+      result.found++;
+      result.details.push({
+        title: game.title,
+        status: 'found',
+        steamGridDBId: sgdbGame.id,
+        steamGridDBName: sgdbGame.name,
+        coverUrl: bestGrid.url,
+      });
+    } else {
+      result.notFound++;
+      result.details.push({
+        title: game.title,
+        status: 'not_found',
+        steamGridDBId: sgdbGame.id,
+        steamGridDBName: sgdbGame.name,
+      });
+    }
+  }
+
+  // Final progress update
+  if (onProgress) {
+    onProgress({
+      total: gamesWithoutCovers.length,
+      completed: gamesWithoutCovers.length,
+      found: result.found,
+      notFound: result.notFound,
+      currentGame: 'Done',
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Fix horizontal covers by fetching vertical ones from SteamGridDB
+ */
+export async function fixHorizontalCovers(
+  onProgress?: (progress: SteamGridDBProgress) => void
+): Promise<SteamGridDBResult> {
+  const gamesWithHorizontalCovers = getGamesWithHorizontalCovers();
+
+  const result: SteamGridDBResult = {
+    total: gamesWithHorizontalCovers.length,
+    found: 0,
+    notFound: 0,
+    details: [],
+  };
+
+  for (let i = 0; i < gamesWithHorizontalCovers.length; i++) {
+    const game = gamesWithHorizontalCovers[i];
+
+    if (onProgress) {
+      onProgress({
+        total: gamesWithHorizontalCovers.length,
+        completed: i,
+        found: result.found,
+        notFound: result.notFound,
+        currentGame: game.title,
+      });
+    }
+
+    // Rate limit
+    if (i > 0) {
+      await delay(RATE_LIMIT_DELAY);
+    }
+
+    // Search for the game
+    const sgdbGame = await searchGame(game.title);
+
+    if (!sgdbGame) {
+      result.notFound++;
+      result.details.push({
+        title: game.title,
+        status: 'not_found',
+      });
+      continue;
+    }
+
+    // Get grids for the game
+    await delay(RATE_LIMIT_DELAY);
+    const grids = await getGrids(sgdbGame.id);
+
+    if (grids.length === 0) {
+      result.notFound++;
+      result.details.push({
+        title: game.title,
+        status: 'not_found',
+        steamGridDBId: sgdbGame.id,
+        steamGridDBName: sgdbGame.name,
+      });
+      continue;
+    }
+
+    // Select best grid
+    const bestGrid = selectBestGrid(grids);
+
+    if (bestGrid) {
+      updateGameCover(game.id, bestGrid.url);
+      result.found++;
+      result.details.push({
+        title: game.title,
+        status: 'found',
+        steamGridDBId: sgdbGame.id,
+        steamGridDBName: sgdbGame.name,
+        coverUrl: bestGrid.url,
+      });
+    } else {
+      result.notFound++;
+      result.details.push({
+        title: game.title,
+        status: 'not_found',
+        steamGridDBId: sgdbGame.id,
+        steamGridDBName: sgdbGame.name,
+      });
+    }
+  }
+
+  // Final progress update
+  if (onProgress) {
+    onProgress({
+      total: gamesWithHorizontalCovers.length,
+      completed: gamesWithHorizontalCovers.length,
+      found: result.found,
+      notFound: result.notFound,
+      currentGame: 'Done',
+    });
+  }
+
+  return result;
+}

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import GameCard from './GameCard';
 import { Game } from '../types/game';
 
@@ -24,45 +25,51 @@ const createMockGame = (overrides: Partial<Game> = {}): Game => ({
   playtimeMinutes: 0,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
+  platforms: [],
   ...overrides,
 });
 
+// Wrapper for components that use react-router hooks
+const renderWithRouter = (ui: React.ReactElement) => {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+};
+
 describe('GameCard', () => {
   it('should render game card', () => {
-    render(<GameCard game={createMockGame()} />);
+    renderWithRouter(<GameCard game={createMockGame()} />);
 
     expect(screen.getByTestId('game-card')).toBeInTheDocument();
   });
 
   it('should display game title', () => {
-    render(<GameCard game={createMockGame({ title: 'The Witcher 3' })} />);
+    renderWithRouter(<GameCard game={createMockGame({ title: 'The Witcher 3' })} />);
 
     expect(screen.getByRole('heading', { name: 'The Witcher 3' })).toBeInTheDocument();
   });
 
   it('should render cover image', () => {
-    render(<GameCard game={createMockGame({ coverImageUrl: 'https://example.com/witcher.jpg' })} />);
+    renderWithRouter(<GameCard game={createMockGame({ coverImageUrl: 'https://example.com/witcher.jpg' })} />);
 
     const img = screen.getByRole('img');
     expect(img).toHaveAttribute('src', 'https://example.com/witcher.jpg');
   });
 
   it('should have lazy loading on image', () => {
-    render(<GameCard game={createMockGame()} />);
+    renderWithRouter(<GameCard game={createMockGame()} />);
 
     const img = screen.getByRole('img');
     expect(img).toHaveAttribute('loading', 'lazy');
   });
 
   it('should have async decoding on image', () => {
-    render(<GameCard game={createMockGame()} />);
+    renderWithRouter(<GameCard game={createMockGame()} />);
 
     const img = screen.getByRole('img');
     expect(img).toHaveAttribute('decoding', 'async');
   });
 
   it('should show Steam badge for Steam games', () => {
-    render(<GameCard game={createMockGame({ steamAppId: 12345 })} />);
+    renderWithRouter(<GameCard game={createMockGame({ steamAppId: 12345 })} />);
 
     // Should have the Steam icon SVG
     const svg = screen.getByRole('img', { hidden: true }).closest('div')?.querySelector('svg');
@@ -70,7 +77,7 @@ describe('GameCard', () => {
   });
 
   it('should not show Steam badge for non-Steam games', () => {
-    render(<GameCard game={createMockGame({ steamAppId: null })} />);
+    renderWithRouter(<GameCard game={createMockGame({ steamAppId: null })} />);
 
     // Should not have the badge container
     const card = screen.getByTestId('game-card');
@@ -84,7 +91,7 @@ describe('GameCard', () => {
       steamAppId: 12345,
     });
 
-    render(<GameCard game={game} />);
+    renderWithRouter(<GameCard game={game} />);
 
     const img = screen.getByRole('img');
     fireEvent.error(img);
@@ -103,7 +110,7 @@ describe('GameCard', () => {
       steamAppId: 12345,
     });
 
-    render(<GameCard game={game} />);
+    renderWithRouter(<GameCard game={game} />);
 
     const img = screen.getByRole('img');
 
@@ -135,7 +142,7 @@ describe('GameCard', () => {
       steamAppId: 12345,
     });
 
-    render(<GameCard game={game} />);
+    renderWithRouter(<GameCard game={game} />);
 
     const img = screen.getByRole('img');
 
@@ -158,7 +165,7 @@ describe('GameCard', () => {
       steamAppId: null,
     });
 
-    render(<GameCard game={game} />);
+    renderWithRouter(<GameCard game={game} />);
 
     const card = screen.getByTestId('game-card');
     // Should show text fallback
@@ -166,21 +173,21 @@ describe('GameCard', () => {
   });
 
   it('should have hover effects class', () => {
-    render(<GameCard game={createMockGame()} />);
+    renderWithRouter(<GameCard game={createMockGame()} />);
 
     const card = screen.getByTestId('game-card');
     expect(card).toHaveClass('group');
   });
 
-  it('should have cursor pointer', () => {
-    render(<GameCard game={createMockGame()} />);
+  it('should link to game detail page', () => {
+    renderWithRouter(<GameCard game={createMockGame({ slug: 'my-game' })} />);
 
-    const card = screen.getByTestId('game-card');
-    expect(card).toHaveClass('cursor-pointer');
+    const link = screen.getByRole('link');
+    expect(link).toHaveAttribute('href', '/game/my-game');
   });
 
   it('should show skeleton while image is loading', () => {
-    render(<GameCard game={createMockGame()} />);
+    renderWithRouter(<GameCard game={createMockGame()} />);
 
     // Before image loads, skeleton should be visible
     const skeleton = screen.getByTestId('game-card').querySelector('.animate-pulse');
@@ -188,7 +195,7 @@ describe('GameCard', () => {
   });
 
   it('should hide skeleton after image loads', async () => {
-    render(<GameCard game={createMockGame()} />);
+    renderWithRouter(<GameCard game={createMockGame()} />);
 
     const img = screen.getByRole('img');
     fireEvent.load(img);
@@ -200,7 +207,7 @@ describe('GameCard', () => {
 
   it('should truncate long titles', () => {
     const longTitle = 'This Is A Very Long Game Title That Should Be Truncated';
-    render(<GameCard game={createMockGame({ title: longTitle })} />);
+    renderWithRouter(<GameCard game={createMockGame({ title: longTitle })} />);
 
     const heading = screen.getByRole('heading');
     expect(heading).toHaveClass('truncate');
