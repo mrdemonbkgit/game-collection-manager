@@ -40,6 +40,10 @@ export default function CoverAuditPage() {
   const [fixProgress, setFixProgress] = useState<BatchFixProgress | null>(null);
   const [fixResult, setFixResult] = useState<BatchFixResult | null>(null);
 
+  // Pagination state
+  const [filteredTotal, setFilteredTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const initialLoadDone = useRef(false);
   const currentViewMode = useRef(viewMode);
 
@@ -52,13 +56,18 @@ export default function CoverAuditPage() {
       const minScore = mode === 'failed' ? 0 : mode === 'flagged' ? 40 : 0;
       const maxScore = mode === 'failed' ? 39 : mode === 'flagged' ? 69 : 100;
 
+      // Use higher limits for failed/flagged tabs (manageable sizes)
+      // Use reasonable limit for 'all' tab
+      const limit = mode === 'all' ? 500 : 1000;
+
       const results = await getCoverAuditResults({
         minScore,
         maxScore,
-        limit: 200,
+        limit,
       });
 
       setSummary(results.summary);
+      setFilteredTotal(results.pagination.filteredTotal);
 
       // Set covers without game info first
       const coversWithGames: CoverWithGame[] = results.results.map((c) => ({
@@ -105,6 +114,68 @@ export default function CoverAuditPage() {
     } catch (err) {
       setError('Failed to load audit results. Run an audit first.');
       setLoading(false);
+    }
+  };
+
+  // Load more results (pagination)
+  const loadMore = async () => {
+    if (loadingMore || covers.length >= filteredTotal) return;
+
+    setLoadingMore(true);
+    try {
+      const mode = currentViewMode.current;
+      const minScore = mode === 'failed' ? 0 : mode === 'flagged' ? 40 : 0;
+      const maxScore = mode === 'failed' ? 39 : mode === 'flagged' ? 69 : 100;
+      const limit = 500;
+      const offset = covers.length;
+
+      const results = await getCoverAuditResults({
+        minScore,
+        maxScore,
+        limit,
+        offset,
+      });
+
+      // Append new results
+      const newCovers: CoverWithGame[] = results.results.map((c) => ({
+        ...c,
+        loadingGame: true,
+      }));
+      setCovers((prev) => [...prev, ...newCovers]);
+
+      // Fetch game info for new covers in background
+      const batchSize = 10;
+      for (let i = 0; i < newCovers.length; i += batchSize) {
+        if (currentViewMode.current !== mode) break;
+
+        const batch = newCovers.slice(i, i + batchSize);
+        const games = await Promise.all(
+          batch.map(async (cover) => {
+            try {
+              return await fetchGameById(cover.gameId);
+            } catch {
+              return undefined;
+            }
+          })
+        );
+
+        if (currentViewMode.current !== mode) break;
+
+        setCovers((prev) => {
+          const updated = [...prev];
+          for (let j = 0; j < games.length; j++) {
+            const idx = offset + i + j;
+            if (idx < updated.length) {
+              updated[idx] = { ...updated[idx], game: games[j], loadingGame: false };
+            }
+          }
+          return updated;
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load more results:', err);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -544,6 +615,24 @@ export default function CoverAuditPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Load More / Pagination Info */}
+        {!loading && visibleCovers.length > 0 && (
+          <div className="mt-6 flex flex-col items-center gap-4">
+            <p className="text-steam-text-muted">
+              Showing {visibleCovers.length} of {filteredTotal} covers
+            </p>
+            {covers.length < filteredTotal && (
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="px-6 py-3 bg-steam-bg-card text-steam-text rounded-lg hover:bg-steam-border transition-colors disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading...' : `Load More (${filteredTotal - covers.length} remaining)`}
+              </button>
+            )}
           </div>
         )}
 
