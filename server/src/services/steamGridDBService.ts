@@ -11,6 +11,10 @@ import {
   getGamesWithoutCovers,
   getGamesWithHorizontalCovers,
   updateGameCover,
+  getCachedAssets,
+  updateGameAssets,
+  markAssetsChecked,
+  getGameById,
 } from '../db/repositories/gameRepository.js';
 import { downloadCover } from './localCoverService.js';
 
@@ -731,4 +735,237 @@ export async function fixMultipleCovers(
     failed: failedCount,
     results,
   };
+}
+
+// ============================================================
+// HERO AND LOGO ASSETS
+// ============================================================
+
+interface SteamGridDBHero {
+  id: number;
+  score: number;
+  style: string;
+  width: number;
+  height: number;
+  nsfw: boolean;
+  humor: boolean;
+  url: string;
+  thumb: string;
+}
+
+interface SteamGridDBLogo {
+  id: number;
+  score: number;
+  style: string;
+  width: number;
+  height: number;
+  nsfw: boolean;
+  humor: boolean;
+  url: string;
+  thumb: string;
+}
+
+interface HeroesResponse {
+  success: boolean;
+  data: SteamGridDBHero[];
+}
+
+interface LogosResponse {
+  success: boolean;
+  data: SteamGridDBLogo[];
+}
+
+/**
+ * Get SteamGridDB game ID by Steam App ID
+ * More accurate than title search
+ */
+async function getSteamGridIdBySteamAppId(steamAppId: number): Promise<number | null> {
+  try {
+    const apiKey = getApiKey();
+    const url = `${API_BASE}/games/steam/${steamAppId}`;
+
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      console.warn(`[SteamGridDB] Failed to get game by steamAppId ${steamAppId}: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json() as { success: boolean; data: { id: number } };
+    if (!data.success || !data.data) return null;
+
+    return data.data.id;
+  } catch (error) {
+    console.warn(`[SteamGridDB] Error getting game by steamAppId ${steamAppId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Fetch hero images for a SteamGridDB game
+ */
+async function fetchHeroes(steamGridId: number): Promise<SteamGridDBHero[]> {
+  try {
+    const apiKey = getApiKey();
+    const url = `${API_BASE}/heroes/game/${steamGridId}`;
+
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) return [];
+      console.warn(`[SteamGridDB] Failed to fetch heroes for ${steamGridId}: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json() as HeroesResponse;
+    if (!data.success || !data.data) return [];
+
+    return data.data;
+  } catch (error) {
+    console.warn(`[SteamGridDB] Error fetching heroes for ${steamGridId}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Fetch logo images for a SteamGridDB game
+ */
+async function fetchLogos(steamGridId: number): Promise<SteamGridDBLogo[]> {
+  try {
+    const apiKey = getApiKey();
+    const url = `${API_BASE}/logos/game/${steamGridId}`;
+
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) return [];
+      console.warn(`[SteamGridDB] Failed to fetch logos for ${steamGridId}: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json() as LogosResponse;
+    if (!data.success || !data.data) return [];
+
+    return data.data;
+  } catch (error) {
+    console.warn(`[SteamGridDB] Error fetching logos for ${steamGridId}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Select the best asset from a list (prefer high score, non-NSFW)
+ */
+function selectBestAsset<T extends { score: number; nsfw: boolean; humor: boolean; url: string }>(
+  assets: T[]
+): T | null {
+  if (assets.length === 0) return null;
+
+  // Filter out NSFW and humor, sort by score
+  const safe = assets
+    .filter(a => !a.nsfw && !a.humor)
+    .sort((a, b) => b.score - a.score);
+
+  if (safe.length > 0) return safe[0];
+
+  // Fallback to any asset
+  return assets.sort((a, b) => b.score - a.score)[0] || null;
+}
+
+/**
+ * Result of getHeroAndLogo
+ */
+export interface SteamGridAssets {
+  heroUrl: string | null;
+  logoUrl: string | null;
+  cached: boolean;
+}
+
+// Cache duration: 24 hours (re-check after this time)
+const ASSET_CACHE_HOURS = 24;
+
+/**
+ * Get hero and logo images for a game from SteamGridDB
+ * Uses caching to avoid repeated API calls
+ */
+export async function getHeroAndLogo(gameId: number): Promise<SteamGridAssets> {
+  // 1. Check DB cache first
+  const cached = getCachedAssets(gameId);
+
+  // If we have cached data and it's recent, return it
+  if (cached.assetsCheckedAt) {
+    const checkedAt = new Date(cached.assetsCheckedAt);
+    const hoursAgo = (Date.now() - checkedAt.getTime()) / (1000 * 60 * 60);
+
+    if (hoursAgo < ASSET_CACHE_HOURS) {
+      return {
+        heroUrl: cached.heroUrl,
+        logoUrl: cached.logoUrl,
+        cached: true,
+      };
+    }
+  }
+
+  // 2. Get game info
+  const game = getGameById(gameId);
+  if (!game) {
+    return { heroUrl: null, logoUrl: null, cached: false };
+  }
+
+  console.log(`[SteamGridDB] Fetching hero/logo for "${game.title}" (ID: ${gameId})`);
+
+  // 3. Lookup by steamAppId first (more accurate)
+  let steamGridId: number | null = cached.steamgridId;
+
+  if (!steamGridId && game.steam_app_id) {
+    console.log(`[SteamGridDB] Looking up by Steam App ID: ${game.steam_app_id}`);
+    steamGridId = await getSteamGridIdBySteamAppId(game.steam_app_id);
+    await delay(RATE_LIMIT_DELAY);
+  }
+
+  // 4. Fallback to title search
+  if (!steamGridId) {
+    console.log(`[SteamGridDB] Falling back to title search: "${game.title}"`);
+    const sgdbGame = await searchGame(game.title);
+    steamGridId = sgdbGame?.id || null;
+    await delay(RATE_LIMIT_DELAY);
+  }
+
+  if (!steamGridId) {
+    console.log(`[SteamGridDB] ❌ Game not found on SteamGridDB`);
+    // Mark as checked to avoid re-querying
+    markAssetsChecked(gameId);
+    return { heroUrl: null, logoUrl: null, cached: false };
+  }
+
+  console.log(`[SteamGridDB] Found SteamGridDB ID: ${steamGridId}`);
+
+  // 5. Fetch heroes and logos in parallel
+  const [heroes, logos] = await Promise.all([
+    fetchHeroes(steamGridId),
+    fetchLogos(steamGridId),
+  ]);
+
+  console.log(`[SteamGridDB] Found ${heroes.length} heroes, ${logos.length} logos`);
+
+  const heroUrl = selectBestAsset(heroes)?.url || null;
+  const logoUrl = selectBestAsset(logos)?.url || null;
+
+  // 6. Cache in DB
+  updateGameAssets(gameId, {
+    steamgridId: steamGridId,
+    heroUrl,
+    logoUrl,
+  });
+
+  console.log(`[SteamGridDB] ✅ Cached assets for game ${gameId}`);
+
+  return { heroUrl, logoUrl, cached: false };
 }

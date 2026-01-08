@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS games (
   steam_rating_count INTEGER,
   steam_app_id INTEGER UNIQUE,
   playtime_minutes INTEGER DEFAULT 0,
+  steamgrid_id INTEGER,
+  hero_url TEXT,
+  logo_url TEXT,
+  assets_checked_at TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -89,4 +93,17 @@ CREATE INDEX IF NOT EXISTS idx_game_platforms_type ON game_platforms(platform_ty
 CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation ON ai_messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_collection_games_collection ON collection_games(collection_id);
 CREATE INDEX IF NOT EXISTS idx_collection_games_game ON collection_games(game_id);
+CREATE INDEX IF NOT EXISTS idx_games_steamgrid_id ON games(steamgrid_id);
+`;
+
+// Migration for existing databases - add new columns if they don't exist
+export const MIGRATIONS = `
+-- Add steamgrid_id column if it doesn't exist
+ALTER TABLE games ADD COLUMN steamgrid_id INTEGER;
+-- Add hero_url column if it doesn't exist
+ALTER TABLE games ADD COLUMN hero_url TEXT;
+-- Add logo_url column if it doesn't exist
+ALTER TABLE games ADD COLUMN logo_url TEXT;
+-- Add assets_checked_at column if it doesn't exist
+ALTER TABLE games ADD COLUMN assets_checked_at TEXT;
 `;

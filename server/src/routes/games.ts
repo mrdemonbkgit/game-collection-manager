@@ -9,9 +9,11 @@ import {
   deleteGame,
   getPlatformsForGames,
   updateGameCover,
+  getSimilarGames,
   type GameQueryOptions,
 } from '../db/repositories/gameRepository.js';
 import { getLocalCoverUrl } from '../services/localCoverService.js';
+import { getHeroAndLogo } from '../services/steamGridDBService.js';
 
 const router = Router();
 
@@ -172,6 +174,89 @@ router.get('/slug/:slug', (req, res) => {
     res.json({ success: true, data: parsedGame });
   } catch (error) {
     console.error('Error fetching game by slug:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/games/:id/steamgrid-assets - Get hero and logo from SteamGridDB
+router.get('/:id/steamgrid-assets', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+
+    if (isNaN(id)) {
+      res.status(400).json({ success: false, error: 'Invalid game ID' });
+      return;
+    }
+
+    const game = getGameById(id);
+
+    if (!game) {
+      res.status(404).json({ success: false, error: 'Game not found' });
+      return;
+    }
+
+    const assets = await getHeroAndLogo(id);
+
+    res.json({ success: true, data: assets });
+  } catch (error) {
+    console.error('Error fetching SteamGridDB assets:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/games/:id/similar - Get similar games by genre/tags
+router.get('/:id/similar', (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    let limit = parseInt(req.query.limit as string, 10) || 10;
+
+    if (isNaN(id)) {
+      res.status(400).json({ success: false, error: 'Invalid game ID' });
+      return;
+    }
+
+    // Clamp limit to 1-20
+    limit = Math.max(1, Math.min(20, limit));
+
+    const game = getGameById(id);
+
+    if (!game) {
+      res.status(404).json({ success: false, error: 'Game not found' });
+      return;
+    }
+
+    // Parse genres and tags from JSON
+    const genres = JSON.parse(game.genres) as string[];
+    const tags = JSON.parse(game.tags) as string[];
+
+    const similarGames = getSimilarGames(id, genres, tags, limit);
+
+    // Get platforms for similar games
+    const gameIds = similarGames.map((g) => g.id);
+    const platformsMap = getPlatformsForGames(gameIds);
+
+    // Parse JSON fields and add platforms
+    const parsedGames = similarGames.map((g) => {
+      const localCover = getLocalCoverUrl(g.id);
+      return {
+        ...g,
+        cover_image_url: localCover || g.cover_image_url,
+        screenshots: JSON.parse(g.screenshots),
+        genres: JSON.parse(g.genres),
+        tags: JSON.parse(g.tags),
+        platforms: platformsMap.get(g.id) || [],
+      };
+    });
+
+    res.json({ success: true, data: parsedGames });
+  } catch (error) {
+    console.error('Error fetching similar games:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

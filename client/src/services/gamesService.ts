@@ -116,3 +116,32 @@ export async function fetchGameById(id: number): Promise<Game> {
 
   return transformGame(response.data);
 }
+
+export interface SteamGridAssets {
+  heroUrl: string | null;
+  logoUrl: string | null;
+}
+
+export async function fetchGameAssets(gameId: number): Promise<SteamGridAssets> {
+  const response = await fetchApi<ApiResponse<SteamGridAssets>>(
+    `/games/${gameId}/steamgrid-assets`
+  );
+
+  if (!response.data) {
+    throw new Error('Failed to fetch game assets');
+  }
+
+  return response.data;
+}
+
+export async function fetchSimilarGames(gameId: number, limit = 10): Promise<Game[]> {
+  const response = await fetchApi<ApiResponse<GameApiResponse[]>>(
+    `/games/${gameId}/similar?limit=${limit}`
+  );
+
+  if (!response.data) {
+    return [];
+  }
+
+  return response.data.map(transformGame);
+}

@@ -19,6 +19,10 @@ export interface GameRow {
   steam_rating_count: number | null;
   steam_app_id: number | null;
   playtime_minutes: number;
+  steamgrid_id: number | null;
+  hero_url: string | null;
+  logo_url: string | null;
+  assets_checked_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -619,4 +623,144 @@ export function normalizeAllGenres(): number {
   clearGenreCache();
 
   return updated;
+}
+
+/**
+ * Get cached SteamGridDB assets for a game
+ */
+export interface CachedAssets {
+  steamgridId: number | null;
+  heroUrl: string | null;
+  logoUrl: string | null;
+  assetsCheckedAt: string | null;
+}
+
+export function getCachedAssets(gameId: number): CachedAssets {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT steamgrid_id, hero_url, logo_url, assets_checked_at
+    FROM games WHERE id = ?
+  `);
+  const row = stmt.get(gameId) as {
+    steamgrid_id: number | null;
+    hero_url: string | null;
+    logo_url: string | null;
+    assets_checked_at: string | null;
+  } | undefined;
+
+  if (!row) {
+    return { steamgridId: null, heroUrl: null, logoUrl: null, assetsCheckedAt: null };
+  }
+
+  return {
+    steamgridId: row.steamgrid_id,
+    heroUrl: row.hero_url,
+    logoUrl: row.logo_url,
+    assetsCheckedAt: row.assets_checked_at,
+  };
+}
+
+/**
+ * Update SteamGridDB assets for a game
+ */
+export interface UpdateAssetsInput {
+  steamgridId?: number | null;
+  heroUrl?: string | null;
+  logoUrl?: string | null;
+}
+
+export function updateGameAssets(gameId: number, assets: UpdateAssetsInput): boolean {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    UPDATE games SET
+      steamgrid_id = COALESCE(?, steamgrid_id),
+      hero_url = COALESCE(?, hero_url),
+      logo_url = COALESCE(?, logo_url),
+      assets_checked_at = datetime('now'),
+      updated_at = datetime('now')
+    WHERE id = ?
+  `);
+  const result = stmt.run(
+    assets.steamgridId ?? null,
+    assets.heroUrl ?? null,
+    assets.logoUrl ?? null,
+    gameId
+  );
+  return result.changes > 0;
+}
+
+/**
+ * Mark a game's assets as checked (even if not found) to avoid re-querying
+ */
+export function markAssetsChecked(gameId: number): boolean {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    UPDATE games SET
+      assets_checked_at = datetime('now'),
+      updated_at = datetime('now')
+    WHERE id = ?
+  `);
+  const result = stmt.run(gameId);
+  return result.changes > 0;
+}
+
+/**
+ * Get similar games based on shared genres and tags
+ */
+export function getSimilarGames(
+  excludeId: number,
+  genres: string[],
+  tags: string[],
+  limit: number = 10
+): GameRow[] {
+  const db = getDatabase();
+
+  if (genres.length === 0 && tags.length === 0) {
+    return [];
+  }
+
+  // Build conditions for genre and tag matching
+  // SQLite doesn't have array contains, so we use LIKE with JSON
+  const conditions: string[] = [];
+  const likePatterns: string[] = [];
+
+  // Add genre conditions
+  for (const genre of genres) {
+    conditions.push("genres LIKE ?");
+    likePatterns.push(`%"${genre}"%`);
+  }
+
+  // Add tag conditions
+  for (const tag of tags) {
+    conditions.push("tags LIKE ?");
+    likePatterns.push(`%"${tag}"%`);
+  }
+
+  // Query: find games that match any genre or tag, exclude current game
+  // Order by number of matches (more matches = more similar)
+  // Note: CASE expressions and WHERE both need the same LIKE patterns,
+  // so we duplicate the params for each set of placeholders
+  const matchExpressions = conditions.map(c => `CASE WHEN ${c} THEN 1 ELSE 0 END`).join(' + ');
+
+  const sql = `
+    SELECT *, (${matchExpressions}) as match_count
+    FROM games
+    WHERE id != ? AND (${conditions.join(' OR ')})
+    ORDER BY match_count DESC, title ASC
+    LIMIT ?
+  `;
+
+  // Build full params array:
+  // 1. Params for CASE expressions (likePatterns)
+  // 2. excludeId for WHERE id != ?
+  // 3. Params for WHERE conditions (likePatterns again)
+  // 4. limit for LIMIT ?
+  const params: (string | number)[] = [
+    ...likePatterns,     // for CASE expressions
+    excludeId,           // for id != ?
+    ...likePatterns,     // for WHERE conditions
+    limit,               // for LIMIT
+  ];
+
+  return db.prepare(sql).all(...params) as unknown as GameRow[];
 }
