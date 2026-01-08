@@ -57,12 +57,15 @@ export function hasLocalCover(gameId: number): string | null {
 
 /**
  * Get the local cover URL for a game (relative to /covers/ route)
+ * Includes cache-busting query param based on file modification time
  */
 export function getLocalCoverUrl(gameId: number): string | null {
   const localPath = hasLocalCover(gameId);
   if (localPath) {
     const filename = path.basename(localPath);
-    return `/covers/${filename}`;
+    // Add mtime as cache-buster to force browser refresh after cover update
+    const mtime = fs.statSync(localPath).mtimeMs;
+    return `/covers/${filename}?v=${Math.floor(mtime)}`;
   }
   return null;
 }

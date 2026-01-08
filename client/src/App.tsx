@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
 import LibraryPage from './pages/LibraryPage';
 import GameDetailPage from './pages/GameDetailPage';
+import AssetFixPage from './pages/AssetFixPage';
 import AdminPage from './pages/AdminPage';
 import CoverFixPage from './pages/CoverFixPage';
 
@@ -10,6 +11,7 @@ function App() {
       <Routes>
         <Route path="/" element={<LibraryPage />} />
         <Route path="/game/:slug" element={<GameDetailPage />} />
+        <Route path="/game/:slug/fix-assets" element={<AssetFixPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/covers" element={<CoverFixPage />} />
       </Routes>

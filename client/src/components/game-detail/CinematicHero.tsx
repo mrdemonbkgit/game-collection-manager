@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { Game } from '../../types/game';
 import PlatformBadge from '../PlatformBadge';
 
@@ -122,6 +123,14 @@ export function CinematicHero({
               Steam Store
             </a>
           )}
+
+          {/* Fix Assets */}
+          <Link
+            to={`/game/${game.slug}/fix-assets`}
+            className="px-4 py-2.5 bg-steam-bg-card/80 hover:bg-steam-bg-card text-steam-text rounded transition-colors"
+          >
+            Fix Hero/Logo
+          </Link>
         </div>
       </div>
     </div>

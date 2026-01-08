@@ -17,7 +17,7 @@ import {
   getGameById,
 } from '../db/repositories/gameRepository.js';
 import { downloadCover } from './localCoverService.js';
-import { downloadGameAssets, getLocalAssetUrl } from './localAssetsService.js';
+import { downloadGameAssets, getLocalAssetUrl, downloadAsset } from './localAssetsService.js';
 
 const API_BASE = 'https://www.steamgriddb.com/api/v2';
 const RATE_LIMIT_DELAY = 250; // 250ms between requests (4 req/sec)
@@ -1017,4 +1017,256 @@ export async function getHeroAndLogo(gameId: number): Promise<SteamGridAssets> {
     logoUrl: logoLocalUrl || remoteLogoUrl,
     cached: false,
   };
+}
+
+// ============================================================
+// ASSET OPTIONS (for Asset Fix Page)
+// ============================================================
+
+// Domain allowlist for SSRF protection
+const ALLOWED_DOMAINS = ['cdn.steamgriddb.com', 'cdn2.steamgriddb.com'];
+
+function isAllowedUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return ALLOWED_DOMAINS.includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+export interface SteamGridAssetOption {
+  id: number;
+  url: string;
+  thumb: string;
+  score: number;
+  style: string;
+  width: number;
+  height: number;
+  author: string;
+}
+
+export interface AssetOptionsResponse {
+  options: SteamGridAssetOption[];
+  total: number;
+  hasMore: boolean;
+  currentAssetId: number | null;
+  currentLocalUrl: string | null;
+}
+
+/**
+ * Get hero options for a game from SteamGridDB
+ */
+export async function getHeroOptions(
+  gameId: number,
+  limit: number = 6,
+  offset: number = 0
+): Promise<AssetOptionsResponse> {
+  const game = getGameById(gameId);
+  if (!game) {
+    return { options: [], total: 0, hasMore: false, currentAssetId: null, currentLocalUrl: null };
+  }
+
+  // Get current local URL if exists
+  const currentLocalUrl = getLocalAssetUrl(gameId, 'hero');
+
+  // Get SteamGridDB ID (cached or lookup)
+  let steamGridId = getCachedAssets(gameId).steamgridId;
+
+  if (!steamGridId && game.steam_app_id) {
+    steamGridId = await getSteamGridIdBySteamAppId(game.steam_app_id);
+    await delay(RATE_LIMIT_DELAY);
+  }
+
+  if (!steamGridId) {
+    const sgdbGame = await searchGame(game.title);
+    steamGridId = sgdbGame?.id || null;
+    await delay(RATE_LIMIT_DELAY);
+  }
+
+  if (!steamGridId) {
+    return { options: [], total: 0, hasMore: false, currentAssetId: null, currentLocalUrl };
+  }
+
+  // Fetch all heroes
+  const heroes = await fetchHeroes(steamGridId);
+
+  // Sort by score descending, filter NSFW/humor
+  const sortedHeroes = heroes
+    .filter(h => !h.nsfw && !h.humor)
+    .sort((a, b) => b.score - a.score);
+
+  const total = sortedHeroes.length;
+  const paginatedHeroes = sortedHeroes.slice(offset, offset + limit);
+
+  const options: SteamGridAssetOption[] = paginatedHeroes.map(h => ({
+    id: h.id,
+    url: h.url,
+    thumb: h.thumb,
+    score: h.score,
+    style: h.style,
+    width: h.width,
+    height: h.height,
+    author: '', // Heroes don't have author in API response
+  }));
+
+  return {
+    options,
+    total,
+    hasMore: offset + limit < total,
+    currentAssetId: null, // We don't track asset IDs currently
+    currentLocalUrl,
+  };
+}
+
+/**
+ * Get logo options for a game from SteamGridDB
+ */
+export async function getLogoOptions(
+  gameId: number,
+  limit: number = 6,
+  offset: number = 0
+): Promise<AssetOptionsResponse> {
+  const game = getGameById(gameId);
+  if (!game) {
+    return { options: [], total: 0, hasMore: false, currentAssetId: null, currentLocalUrl: null };
+  }
+
+  // Get current local URL if exists
+  const currentLocalUrl = getLocalAssetUrl(gameId, 'logo');
+
+  // Get SteamGridDB ID (cached or lookup)
+  let steamGridId = getCachedAssets(gameId).steamgridId;
+
+  if (!steamGridId && game.steam_app_id) {
+    steamGridId = await getSteamGridIdBySteamAppId(game.steam_app_id);
+    await delay(RATE_LIMIT_DELAY);
+  }
+
+  if (!steamGridId) {
+    const sgdbGame = await searchGame(game.title);
+    steamGridId = sgdbGame?.id || null;
+    await delay(RATE_LIMIT_DELAY);
+  }
+
+  if (!steamGridId) {
+    return { options: [], total: 0, hasMore: false, currentAssetId: null, currentLocalUrl };
+  }
+
+  // Fetch all logos
+  const logos = await fetchLogos(steamGridId);
+
+  // Sort by score descending, filter NSFW/humor
+  const sortedLogos = logos
+    .filter(l => !l.nsfw && !l.humor)
+    .sort((a, b) => b.score - a.score);
+
+  const total = sortedLogos.length;
+  const paginatedLogos = sortedLogos.slice(offset, offset + limit);
+
+  const options: SteamGridAssetOption[] = paginatedLogos.map(l => ({
+    id: l.id,
+    url: l.url,
+    thumb: l.thumb,
+    score: l.score,
+    style: l.style,
+    width: l.width,
+    height: l.height,
+    author: '', // Logos don't have author in API response
+  }));
+
+  return {
+    options,
+    total,
+    hasMore: offset + limit < total,
+    currentAssetId: null, // We don't track asset IDs currently
+    currentLocalUrl,
+  };
+}
+
+/**
+ * Save selected assets by their SteamGridDB IDs
+ * Fetches the asset URLs from the options and downloads to local cache
+ */
+export async function saveSelectedAssets(
+  gameId: number,
+  heroAssetId: number | null,
+  logoAssetId: number | null
+): Promise<{ success: boolean; heroLocalUrl?: string; logoLocalUrl?: string; errors: string[] }> {
+  const errors: string[] = [];
+  let heroLocalUrl: string | undefined;
+  let logoLocalUrl: string | undefined;
+
+  const game = getGameById(gameId);
+  if (!game) {
+    return { success: false, errors: ['Game not found'] };
+  }
+
+  // Get SteamGridDB ID
+  let steamGridId = getCachedAssets(gameId).steamgridId;
+  if (!steamGridId && game.steam_app_id) {
+    steamGridId = await getSteamGridIdBySteamAppId(game.steam_app_id);
+    await delay(RATE_LIMIT_DELAY);
+  }
+  if (!steamGridId) {
+    const sgdbGame = await searchGame(game.title);
+    steamGridId = sgdbGame?.id || null;
+  }
+
+  if (!steamGridId) {
+    return { success: false, errors: ['Game not found on SteamGridDB'] };
+  }
+
+  // Fetch and download hero
+  if (heroAssetId) {
+    try {
+      const heroes = await fetchHeroes(steamGridId);
+      const hero = heroes.find(h => h.id === heroAssetId);
+
+      if (!hero) {
+        errors.push('Hero asset not found');
+      } else if (!isAllowedUrl(hero.url)) {
+        errors.push('Hero URL not from allowed domain');
+      } else {
+        const result = await downloadAsset(gameId, hero.url, 'hero');
+        if (result.success && result.localUrl) {
+          heroLocalUrl = result.localUrl;
+          // Update DB cache
+          updateGameAssets(gameId, { steamgridId: steamGridId, heroUrl: hero.url });
+        } else {
+          errors.push(`Hero download failed: ${result.error}`);
+        }
+      }
+    } catch (err) {
+      errors.push(`Hero error: ${err instanceof Error ? err.message : 'Unknown'}`);
+    }
+  }
+
+  // Fetch and download logo
+  if (logoAssetId) {
+    try {
+      const logos = await fetchLogos(steamGridId);
+      const logo = logos.find(l => l.id === logoAssetId);
+
+      if (!logo) {
+        errors.push('Logo asset not found');
+      } else if (!isAllowedUrl(logo.url)) {
+        errors.push('Logo URL not from allowed domain');
+      } else {
+        const result = await downloadAsset(gameId, logo.url, 'logo');
+        if (result.success && result.localUrl) {
+          logoLocalUrl = result.localUrl;
+          // Update DB cache
+          updateGameAssets(gameId, { steamgridId: steamGridId, logoUrl: logo.url });
+        } else {
+          errors.push(`Logo download failed: ${result.error}`);
+        }
+      }
+    } catch (err) {
+      errors.push(`Logo error: ${err instanceof Error ? err.message : 'Unknown'}`);
+    }
+  }
+
+  const success = errors.length === 0 && !!(heroLocalUrl || logoLocalUrl);
+  return { success, heroLocalUrl, logoLocalUrl, errors };
 }

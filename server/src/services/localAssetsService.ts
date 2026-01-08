@@ -51,13 +51,16 @@ export function hasLocalAsset(gameId: number, type: AssetType): string | null {
 
 /**
  * Get the local asset URL for a game (relative to server route)
+ * Includes cache-busting query param based on file modification time
  */
 export function getLocalAssetUrl(gameId: number, type: AssetType): string | null {
   const localPath = hasLocalAsset(gameId, type);
   if (localPath) {
     const filename = path.basename(localPath);
     const routePath = type === 'hero' ? 'heroes' : 'logos';
-    return `/${routePath}/${filename}`;
+    // Add mtime as cache-buster to force browser refresh after asset update
+    const mtime = fs.statSync(localPath).mtimeMs;
+    return `/${routePath}/${filename}?v=${Math.floor(mtime)}`;
   }
   return null;
 }
@@ -118,7 +121,9 @@ export async function downloadAsset(
     await pipeline(Readable.fromWeb(body as never), writeStream);
 
     const routePath = type === 'hero' ? 'heroes' : 'logos';
-    const localUrl = `/${routePath}/${gameId}${ext}`;
+    // Add mtime as cache-buster
+    const mtime = fs.statSync(localPath).mtimeMs;
+    const localUrl = `/${routePath}/${gameId}${ext}?v=${Math.floor(mtime)}`;
 
     return { success: true, localPath, localUrl };
   } catch (error) {

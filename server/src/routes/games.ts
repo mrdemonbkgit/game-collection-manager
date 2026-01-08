@@ -13,7 +13,12 @@ import {
   type GameQueryOptions,
 } from '../db/repositories/gameRepository.js';
 import { getLocalCoverUrl } from '../services/localCoverService.js';
-import { getHeroAndLogo } from '../services/steamGridDBService.js';
+import {
+  getHeroAndLogo,
+  getHeroOptions,
+  getLogoOptions,
+  saveSelectedAssets,
+} from '../services/steamGridDBService.js';
 
 const router = Router();
 
@@ -203,6 +208,103 @@ router.get('/:id/steamgrid-assets', async (req, res) => {
     res.json({ success: true, data: assets });
   } catch (error) {
     console.error('Error fetching SteamGridDB assets:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/games/:id/steamgrid-heroes - Get hero options from SteamGridDB
+router.get('/:id/steamgrid-heroes', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const limit = parseInt(req.query.limit as string, 10) || 6;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
+
+    if (isNaN(id)) {
+      res.status(400).json({ success: false, error: 'Invalid game ID' });
+      return;
+    }
+
+    const game = getGameById(id);
+    if (!game) {
+      res.status(404).json({ success: false, error: 'Game not found' });
+      return;
+    }
+
+    const options = await getHeroOptions(id, limit, offset);
+    res.json({ success: true, data: options });
+  } catch (error) {
+    console.error('Error fetching hero options:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/games/:id/steamgrid-logos - Get logo options from SteamGridDB
+router.get('/:id/steamgrid-logos', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const limit = parseInt(req.query.limit as string, 10) || 6;
+    const offset = parseInt(req.query.offset as string, 10) || 0;
+
+    if (isNaN(id)) {
+      res.status(400).json({ success: false, error: 'Invalid game ID' });
+      return;
+    }
+
+    const game = getGameById(id);
+    if (!game) {
+      res.status(404).json({ success: false, error: 'Game not found' });
+      return;
+    }
+
+    const options = await getLogoOptions(id, limit, offset);
+    res.json({ success: true, data: options });
+  } catch (error) {
+    console.error('Error fetching logo options:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// POST /api/games/:id/assets - Save selected hero/logo assets
+router.post('/:id/assets', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { heroAssetId, logoAssetId } = req.body;
+
+    if (isNaN(id)) {
+      res.status(400).json({ success: false, error: 'Invalid game ID' });
+      return;
+    }
+
+    const game = getGameById(id);
+    if (!game) {
+      res.status(404).json({ success: false, error: 'Game not found' });
+      return;
+    }
+
+    // Validate that at least one asset ID is provided
+    if (!heroAssetId && !logoAssetId) {
+      res.status(400).json({ success: false, error: 'At least one asset ID is required' });
+      return;
+    }
+
+    const result = await saveSelectedAssets(
+      id,
+      heroAssetId ? parseInt(heroAssetId, 10) : null,
+      logoAssetId ? parseInt(logoAssetId, 10) : null
+    );
+
+    res.json({ success: result.success, data: result });
+  } catch (error) {
+    console.error('Error saving assets:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

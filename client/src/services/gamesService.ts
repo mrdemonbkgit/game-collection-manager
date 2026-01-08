@@ -145,3 +145,87 @@ export async function fetchSimilarGames(gameId: number, limit = 10): Promise<Gam
 
   return response.data.map(transformGame);
 }
+
+// Asset Fix Types
+export interface SteamGridAssetOption {
+  id: number;
+  url: string;
+  thumb: string;
+  score: number;
+  style: string;
+  width: number;
+  height: number;
+  author: string;
+}
+
+export interface AssetOptionsResponse {
+  options: SteamGridAssetOption[];
+  total: number;
+  hasMore: boolean;
+  currentAssetId: number | null;
+  currentLocalUrl: string | null;
+}
+
+export async function fetchHeroOptions(
+  gameId: number,
+  limit = 6,
+  offset = 0
+): Promise<AssetOptionsResponse> {
+  const response = await fetchApi<ApiResponse<AssetOptionsResponse>>(
+    `/games/${gameId}/steamgrid-heroes?limit=${limit}&offset=${offset}`
+  );
+
+  if (!response.data) {
+    return { options: [], total: 0, hasMore: false, currentAssetId: null, currentLocalUrl: null };
+  }
+
+  return response.data;
+}
+
+export async function fetchLogoOptions(
+  gameId: number,
+  limit = 6,
+  offset = 0
+): Promise<AssetOptionsResponse> {
+  const response = await fetchApi<ApiResponse<AssetOptionsResponse>>(
+    `/games/${gameId}/steamgrid-logos?limit=${limit}&offset=${offset}`
+  );
+
+  if (!response.data) {
+    return { options: [], total: 0, hasMore: false, currentAssetId: null, currentLocalUrl: null };
+  }
+
+  return response.data;
+}
+
+export interface SaveAssetsRequest {
+  heroAssetId?: number;
+  logoAssetId?: number;
+}
+
+export interface SaveAssetsResponse {
+  success: boolean;
+  heroLocalUrl?: string;
+  logoLocalUrl?: string;
+  errors: string[];
+}
+
+export async function saveGameAssets(
+  gameId: number,
+  request: SaveAssetsRequest
+): Promise<SaveAssetsResponse> {
+  const response = await fetchApi<ApiResponse<SaveAssetsResponse>>(
+    `/games/${gameId}/assets`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }
+  );
+
+  if (!response.data) {
+    return { success: false, errors: ['Failed to save assets'] };
+  }
+
+  return response.data;
+}
