@@ -5,6 +5,8 @@
  * Used for games that don't have covers from Steam CDN.
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   getGamesWithoutCovers,
   getGamesWithHorizontalCovers,
@@ -14,6 +16,65 @@ import { downloadCover } from './localCoverService.js';
 
 const API_BASE = 'https://www.steamgriddb.com/api/v2';
 const RATE_LIMIT_DELAY = 250; // 250ms between requests (4 req/sec)
+
+// Track which SteamGridDB grid IDs have been tried per game
+const TRIED_COVERS_FILE = path.resolve(process.cwd(), 'data', 'cover-fix-history.json');
+
+export interface CoverFixHistory {
+  [gameId: string]: number[]; // Array of tried SGDB grid IDs
+}
+
+function loadTriedCovers(): CoverFixHistory {
+  try {
+    if (fs.existsSync(TRIED_COVERS_FILE)) {
+      return JSON.parse(fs.readFileSync(TRIED_COVERS_FILE, 'utf-8'));
+    }
+  } catch {
+    // Ignore errors, start fresh
+  }
+  return {};
+}
+
+function saveTriedCovers(history: CoverFixHistory): void {
+  const dir = path.dirname(TRIED_COVERS_FILE);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(TRIED_COVERS_FILE, JSON.stringify(history, null, 2));
+}
+
+function addTriedCover(gameId: number, gridId: number): void {
+  const history = loadTriedCovers();
+  const key = String(gameId);
+  if (!history[key]) {
+    history[key] = [];
+  }
+  if (!history[key].includes(gridId)) {
+    history[key].push(gridId);
+  }
+  saveTriedCovers(history);
+}
+
+function getTriedCovers(gameId: number): number[] {
+  const history = loadTriedCovers();
+  return history[String(gameId)] || [];
+}
+
+export function clearTriedCovers(gameId: number): void {
+  const history = loadTriedCovers();
+  delete history[String(gameId)];
+  saveTriedCovers(history);
+  console.log(`[SteamGridDB] 🗑️ Cleared fix history for game ${gameId}`);
+}
+
+export function clearAllTriedCovers(): void {
+  saveTriedCovers({});
+  console.log(`[SteamGridDB] 🗑️ Cleared all fix history`);
+}
+
+export function getCoverFixHistory(): CoverFixHistory {
+  return loadTriedCovers();
+}
 
 interface SteamGridDBGame {
   id: number;
@@ -192,21 +253,32 @@ async function getGrids(gameId: number): Promise<SteamGridDBGrid[]> {
 
 /**
  * Get the best grid image for a game (prefer high score, non-NSFW, static images)
+ * Excludes any grid IDs in the excludeIds array (previously tried covers)
  */
-function selectBestGrid(grids: SteamGridDBGrid[]): SteamGridDBGrid | null {
+function selectBestGrid(grids: SteamGridDBGrid[], excludeIds: number[] = []): SteamGridDBGrid | null {
   if (grids.length === 0) return null;
 
-  // Filter out NSFW and sort by score
+  // Filter out NSFW, humor, and previously tried grids
+  const excludeSet = new Set(excludeIds);
   const safeGrids = grids
-    .filter(g => !g.nsfw && !g.humor)
+    .filter(g => !g.nsfw && !g.humor && !excludeSet.has(g.id))
     .sort((a, b) => b.score - a.score);
 
   if (safeGrids.length > 0) {
     return safeGrids[0];
   }
 
-  // Fallback to any grid sorted by score
-  return grids.sort((a, b) => b.score - a.score)[0];
+  // Fallback to any grid (excluding tried ones) sorted by score
+  const availableGrids = grids
+    .filter(g => !excludeSet.has(g.id))
+    .sort((a, b) => b.score - a.score);
+
+  if (availableGrids.length > 0) {
+    return availableGrids[0];
+  }
+
+  // All grids have been tried - return null to indicate no more options
+  return null;
 }
 
 export interface SteamGridDBProgress {
@@ -440,6 +512,7 @@ export interface FixCoverResult {
 
 /**
  * Fix a single game's cover by fetching from SteamGridDB
+ * Tracks previously tried covers to avoid downloading the same bad cover twice
  */
 export async function fixSingleCover(
   gameId: number,
@@ -449,6 +522,12 @@ export async function fixSingleCover(
   try {
     const searchQuery = searchTerm || gameTitle;
     console.log(`[SteamGridDB] Searching for "${searchQuery}" (gameId: ${gameId})...`);
+
+    // Get list of previously tried grid IDs for this game
+    const triedGridIds = getTriedCovers(gameId);
+    if (triedGridIds.length > 0) {
+      console.log(`[SteamGridDB] Previously tried ${triedGridIds.length} covers for this game`);
+    }
 
     // Search for the game
     const sgdbGame = await searchGame(searchQuery);
@@ -480,21 +559,22 @@ export async function fixSingleCover(
       };
     }
 
-    // Select best grid
-    const bestGrid = selectBestGrid(grids);
+    // Select best grid (excluding previously tried ones)
+    const bestGrid = selectBestGrid(grids, triedGridIds);
 
     if (!bestGrid) {
-      console.log(`[SteamGridDB] ❌ No suitable cover found (all filtered out)`);
+      const availableCount = grids.length - triedGridIds.length;
+      console.log(`[SteamGridDB] ❌ No more covers to try (${triedGridIds.length} tried, ${availableCount} remaining)`);
       return {
         success: false,
         gameId,
-        error: 'No suitable cover found',
+        error: `All ${grids.length} available covers have been tried. Clear history to retry.`,
         steamGridDBId: sgdbGame.id,
         steamGridDBName: sgdbGame.name,
       };
     }
 
-    console.log(`[SteamGridDB] Selected grid: score=${bestGrid.score}, style=${bestGrid.style}, ${bestGrid.width}x${bestGrid.height}`);
+    console.log(`[SteamGridDB] Selected grid #${bestGrid.id}: score=${bestGrid.score}, style=${bestGrid.style}, ${bestGrid.width}x${bestGrid.height}`);
     console.log(`[SteamGridDB] URL: ${bestGrid.url}`);
 
     // Download the cover to local cache
@@ -513,6 +593,10 @@ export async function fixSingleCover(
     }
 
     console.log(`[SteamGridDB] ✅ Downloaded to: ${downloadResult.localPath}`);
+
+    // Track this grid as tried (so next fix attempt uses a different one)
+    addTriedCover(gameId, bestGrid.id);
+    console.log(`[SteamGridDB] 📝 Recorded grid #${bestGrid.id} as tried`);
 
     // Update the game's cover URL in database to use local path
     const localUrl = `/covers/${gameId}${downloadResult.localPath?.match(/\.[^.]+$/)?.[0] || '.jpg'}`;

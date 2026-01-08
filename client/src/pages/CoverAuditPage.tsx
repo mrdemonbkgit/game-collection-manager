@@ -386,6 +386,12 @@ export default function CoverAuditPage() {
               </div>
             )}
             <Link
+              to="/admin/covers/history"
+              className="text-steam-text-muted hover:text-steam-text transition-colors"
+            >
+              Fix History
+            </Link>
+            <Link
               to="/admin"
               className="text-steam-text-muted hover:text-steam-text transition-colors"
             >

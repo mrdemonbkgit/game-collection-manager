@@ -3,6 +3,7 @@ import LibraryPage from './pages/LibraryPage';
 import GameDetailPage from './pages/GameDetailPage';
 import AdminPage from './pages/AdminPage';
 import CoverAuditPage from './pages/CoverAuditPage';
+import CoverFixHistoryPage from './pages/CoverFixHistoryPage';
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
         <Route path="/game/:slug" element={<GameDetailPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/covers" element={<CoverAuditPage />} />
+        <Route path="/admin/covers/history" element={<CoverFixHistoryPage />} />
       </Routes>
     </div>
   );

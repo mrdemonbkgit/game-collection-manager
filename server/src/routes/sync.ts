@@ -33,6 +33,7 @@ import {
   fixHorizontalCovers,
   fixSingleCover,
   fixMultipleCovers,
+  getCoverFixHistory,
   type SteamGridDBProgress,
   type SteamGridDBResult,
 } from '../services/steamGridDBService.js';
@@ -1368,6 +1369,44 @@ router.get('/covers/fix-batch/status', (_req, res) => {
     });
   } catch (error) {
     console.error('Error getting batch fix status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/covers/fix-history - Get cover fix history with game details
+router.get('/covers/fix-history', (_req, res) => {
+  try {
+    const history = getCoverFixHistory();
+    const gameIds = Object.keys(history).map(Number);
+
+    // Get game details for all games in history
+    const { games: allGames } = getAllGames({ limit: 10000 });
+    const gameMap = new Map(allGames.map(g => [g.id, g]));
+
+    const items = gameIds.map(gameId => {
+      const game = gameMap.get(gameId);
+      return {
+        gameId,
+        title: game?.title || `Unknown Game #${gameId}`,
+        slug: game?.slug,
+        triedGridIds: history[String(gameId)],
+        attemptCount: history[String(gameId)]?.length || 0,
+      };
+    }).sort((a, b) => b.attemptCount - a.attemptCount); // Sort by most attempts first
+
+    res.json({
+      success: true,
+      data: {
+        totalGames: items.length,
+        totalAttempts: items.reduce((sum, i) => sum + i.attemptCount, 0),
+        items,
+      },
+    });
+  } catch (error) {
+    console.error('Error getting cover fix history:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

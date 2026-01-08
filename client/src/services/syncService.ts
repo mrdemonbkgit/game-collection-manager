@@ -183,6 +183,32 @@ export async function getBatchFixStatus(): Promise<{
   return response.data;
 }
 
+// ============================================================================
+// Cover Fix History
+// ============================================================================
+
+export interface CoverFixHistoryItem {
+  gameId: number;
+  title: string;
+  slug?: string;
+  triedGridIds: number[];
+  attemptCount: number;
+}
+
+export interface CoverFixHistoryResponse {
+  totalGames: number;
+  totalAttempts: number;
+  items: CoverFixHistoryItem[];
+}
+
+export async function getCoverFixHistory(): Promise<CoverFixHistoryResponse> {
+  const response = await fetchApi<{
+    success: boolean;
+    data: CoverFixHistoryResponse;
+  }>('/sync/covers/fix-history');
+  return response.data;
+}
+
 // Supported platform types for subscription catalogs
 export type CatalogPlatform = 'gamepass' | 'eaplay' | 'ubisoftplus';
 
