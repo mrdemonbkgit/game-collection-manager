@@ -23,7 +23,21 @@ export async function fetchApi<T>(
     ...options,
   });
 
-  const data = await response.json();
+  // Handle empty or invalid JSON responses
+  let data: T & { success?: boolean; error?: string };
+  try {
+    const text = await response.text();
+    if (!text) {
+      throw new ApiError('Empty response from server', response.status);
+    }
+    data = JSON.parse(text);
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(
+      `Invalid response: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      response.status
+    );
+  }
 
   if (!response.ok || !data.success) {
     throw new ApiError(

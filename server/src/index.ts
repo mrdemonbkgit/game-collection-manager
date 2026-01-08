@@ -13,6 +13,7 @@ import syncRouter from './routes/sync.js';
 import logsRouter from './routes/logs.js';
 import collectionsRouter from './routes/collections.js';
 import { ensureCoversDir } from './services/localCoverService.js';
+import { destroyPool } from './services/coverAuditService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -61,20 +62,23 @@ const server = app.listen(PORT, () => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down...');
-  server.close(() => {
+async function shutdown() {
+  console.log('Shutting down...');
+  server.close(async () => {
+    await destroyPool();
     closeDatabase();
     process.exit(0);
   });
+}
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received');
+  shutdown();
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down...');
-  server.close(() => {
-    closeDatabase();
-    process.exit(0);
-  });
+  console.log('SIGINT received');
+  shutdown();
 });
 
 export default app;
