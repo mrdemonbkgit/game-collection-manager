@@ -104,3 +104,15 @@ export async function fetchGameBySlug(slug: string): Promise<Game> {
 
   return transformGame(response.data);
 }
+
+export async function fetchGameById(id: number): Promise<Game> {
+  const response = await fetchApi<ApiResponse<GameApiResponse>>(
+    `/games/${id}`
+  );
+
+  if (!response.data) {
+    throw new Error('Game not found');
+  }
+
+  return transformGame(response.data);
+}

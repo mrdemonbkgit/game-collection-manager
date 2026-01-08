@@ -31,6 +31,8 @@ import {
 import {
   fetchCoversFromSteamGridDB,
   fixHorizontalCovers,
+  fixSingleCover,
+  fixMultipleCovers,
   type SteamGridDBProgress,
   type SteamGridDBResult,
 } from '../services/steamGridDBService.js';
@@ -42,6 +44,14 @@ import {
   clearCache,
 } from '../services/localCoverService.js';
 import { getAllGames } from '../db/repositories/gameRepository.js';
+import {
+  runCoverAudit,
+  getCachedAuditResults,
+  getBadCovers,
+  isAuditInProgress,
+  getAuditProgress,
+  clearAuditCache,
+} from '../services/coverAuditService.js';
 
 const router = Router();
 
@@ -970,6 +980,394 @@ router.delete('/covers/cache', (_req, res) => {
     });
   } catch (error) {
     console.error('Error clearing cover cache:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// ============================================================================
+// Cover Quality Audit Endpoints
+// ============================================================================
+
+// Cover audit state
+let coverAuditState: {
+  inProgress: boolean;
+  startTime: number | null;
+} = {
+  inProgress: false,
+  startTime: null,
+};
+
+// POST /api/sync/covers/audit - Start cover quality audit
+router.post('/covers/audit', async (_req, res) => {
+  try {
+    if (isAuditInProgress()) {
+      res.status(409).json({
+        success: false,
+        error: 'Cover audit already in progress',
+        progress: getAuditProgress(),
+      });
+      return;
+    }
+
+    coverAuditState = {
+      inProgress: true,
+      startTime: Date.now(),
+    };
+
+    console.log('Starting cover quality audit...');
+
+    // Run audit in background
+    runCoverAudit((progress) => {
+      if (progress.completed % 100 === 0 || progress.phase === 'complete') {
+        console.log(
+          `[Cover Audit] ${progress.completed}/${progress.total} - ` +
+            `Passed: ${progress.passed}, Flagged: ${progress.flagged}, Failed: ${progress.failed}`
+        );
+      }
+    })
+      .then((result) => {
+        coverAuditState.inProgress = false;
+        console.log(
+          `Cover audit complete in ${(result.durationMs / 1000).toFixed(1)}s: ` +
+            `${result.passed} passed, ${result.flagged} flagged, ${result.failed} failed, ${result.errors} errors`
+        );
+      })
+      .catch((error) => {
+        coverAuditState.inProgress = false;
+        console.error('Cover audit error:', error);
+      });
+
+    res.json({
+      success: true,
+      message: 'Cover audit started',
+    });
+  } catch (error) {
+    console.error('Error starting cover audit:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/covers/audit/status - Get audit progress
+router.get('/covers/audit/status', (_req, res) => {
+  try {
+    const elapsedMs = coverAuditState.startTime
+      ? Date.now() - coverAuditState.startTime
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        inProgress: isAuditInProgress(),
+        progress: getAuditProgress(),
+        elapsedSeconds: Math.floor(elapsedMs / 1000),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting cover audit status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/covers/audit/results - Get audit results with filtering
+router.get('/covers/audit/results', (req, res) => {
+  try {
+    const results = getCachedAuditResults();
+
+    if (!results) {
+      res.status(404).json({
+        success: false,
+        error: 'No audit results found. Run an audit first.',
+      });
+      return;
+    }
+
+    // Parse filter params
+    const minScore = req.query.minScore
+      ? parseInt(req.query.minScore as string, 10)
+      : 0;
+    const maxScore = req.query.maxScore
+      ? parseInt(req.query.maxScore as string, 10)
+      : 100;
+    const limit = req.query.limit
+      ? parseInt(req.query.limit as string, 10)
+      : 100;
+    const offset = req.query.offset
+      ? parseInt(req.query.offset as string, 10)
+      : 0;
+
+    // Filter results by score range
+    const filtered = results.results.filter(
+      (r) => r.score >= minScore && r.score <= maxScore
+    );
+
+    // Apply pagination
+    const paginated = filtered.slice(offset, offset + limit);
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          total: results.total,
+          passed: results.passed,
+          flagged: results.flagged,
+          failed: results.failed,
+          errors: results.errors,
+          durationMs: results.durationMs,
+          completedAt: results.completedAt,
+        },
+        results: paginated,
+        pagination: {
+          limit,
+          offset,
+          filteredTotal: filtered.length,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error getting cover audit results:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/covers/audit/bad - Get list of bad covers
+router.get('/covers/audit/bad', (req, res) => {
+  try {
+    const threshold = req.query.threshold
+      ? parseInt(req.query.threshold as string, 10)
+      : 40;
+
+    const badCovers = getBadCovers(threshold);
+
+    if (badCovers.length === 0) {
+      const results = getCachedAuditResults();
+      if (!results) {
+        res.status(404).json({
+          success: false,
+          error: 'No audit results found. Run an audit first.',
+        });
+        return;
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        threshold,
+        count: badCovers.length,
+        covers: badCovers,
+      },
+    });
+  } catch (error) {
+    console.error('Error getting bad covers:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// DELETE /api/sync/covers/audit - Clear audit cache
+router.delete('/covers/audit', (_req, res) => {
+  try {
+    clearAuditCache();
+    res.json({
+      success: true,
+      message: 'Audit cache cleared',
+    });
+  } catch (error) {
+    console.error('Error clearing audit cache:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// ============================================================================
+// Cover Fix Endpoints (SteamGridDB)
+// ============================================================================
+
+// POST /api/sync/covers/fix/:gameId - Fix a single cover via SteamGridDB
+router.post('/covers/fix/:gameId', async (req, res) => {
+  try {
+    if (!process.env.STEAMGRIDDB_API_KEY) {
+      res.status(400).json({
+        success: false,
+        error: 'STEAMGRIDDB_API_KEY not configured in environment',
+      });
+      return;
+    }
+
+    const gameId = parseInt(req.params.gameId, 10);
+    if (isNaN(gameId)) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid game ID',
+      });
+      return;
+    }
+
+    const { searchTerm, title } = req.body || {};
+
+    // Get game title if not provided
+    const gameTitle = title || searchTerm || `Game ${gameId}`;
+
+    console.log(`Fixing cover for game ${gameId} (${gameTitle})...`);
+
+    const result = await fixSingleCover(gameId, gameTitle, searchTerm);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error('Error fixing cover:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Batch fix state
+let batchFixState: {
+  inProgress: boolean;
+  progress: { completed: number; total: number; current: string } | null;
+  result: {
+    total: number;
+    success: number;
+    failed: number;
+    results: Array<{
+      success: boolean;
+      gameId: number;
+      coverUrl?: string;
+      error?: string;
+    }>;
+  } | null;
+  startTime: number | null;
+} = {
+  inProgress: false,
+  progress: null,
+  result: null,
+  startTime: null,
+};
+
+// POST /api/sync/covers/fix-batch - Fix multiple covers via SteamGridDB
+router.post('/covers/fix-batch', async (req, res) => {
+  try {
+    if (!process.env.STEAMGRIDDB_API_KEY) {
+      res.status(400).json({
+        success: false,
+        error: 'STEAMGRIDDB_API_KEY not configured in environment',
+      });
+      return;
+    }
+
+    if (batchFixState.inProgress) {
+      res.status(409).json({
+        success: false,
+        error: 'Batch fix already in progress',
+        progress: batchFixState.progress,
+      });
+      return;
+    }
+
+    const { games } = req.body || {};
+    if (!Array.isArray(games) || games.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'games array is required',
+      });
+      return;
+    }
+
+    // Validate games array
+    const validGames = games.filter(
+      (g): g is { gameId: number; title: string } =>
+        typeof g.gameId === 'number' && typeof g.title === 'string'
+    );
+
+    if (validGames.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'No valid games in array. Each must have gameId (number) and title (string)',
+      });
+      return;
+    }
+
+    batchFixState = {
+      inProgress: true,
+      progress: { completed: 0, total: validGames.length, current: '' },
+      result: null,
+      startTime: Date.now(),
+    };
+
+    console.log(`Starting batch cover fix for ${validGames.length} games...`);
+
+    // Run in background
+    fixMultipleCovers(validGames, (completed, total, current) => {
+      batchFixState.progress = { completed, total, current };
+      console.log(`[Batch Fix] ${completed}/${total} - ${current}`);
+    })
+      .then((result) => {
+        batchFixState.inProgress = false;
+        batchFixState.result = result;
+        console.log(
+          `Batch fix complete: ${result.success} success, ${result.failed} failed`
+        );
+      })
+      .catch((error) => {
+        batchFixState.inProgress = false;
+        console.error('Batch fix error:', error);
+      });
+
+    res.json({
+      success: true,
+      message: 'Batch fix started',
+      data: {
+        total: validGames.length,
+        estimatedSeconds: Math.ceil(validGames.length * 1), // ~1s per game (2 API calls + rate limit)
+      },
+    });
+  } catch (error) {
+    console.error('Error starting batch fix:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/covers/fix-batch/status - Get batch fix status
+router.get('/covers/fix-batch/status', (_req, res) => {
+  try {
+    const elapsedMs = batchFixState.startTime
+      ? Date.now() - batchFixState.startTime
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        inProgress: batchFixState.inProgress,
+        progress: batchFixState.progress,
+        result: batchFixState.result,
+        elapsedSeconds: Math.floor(elapsedMs / 1000),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting batch fix status:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

@@ -424,3 +424,133 @@ export async function fixHorizontalCovers(
 
   return result;
 }
+
+/**
+ * Result for fixing a single cover
+ */
+export interface FixCoverResult {
+  success: boolean;
+  gameId: number;
+  coverUrl?: string;
+  error?: string;
+  steamGridDBId?: number;
+  steamGridDBName?: string;
+}
+
+/**
+ * Fix a single game's cover by fetching from SteamGridDB
+ */
+export async function fixSingleCover(
+  gameId: number,
+  gameTitle: string,
+  searchTerm?: string
+): Promise<FixCoverResult> {
+  try {
+    const searchQuery = searchTerm || gameTitle;
+
+    // Search for the game
+    const sgdbGame = await searchGame(searchQuery);
+
+    if (!sgdbGame) {
+      return {
+        success: false,
+        gameId,
+        error: `Game not found on SteamGridDB: "${searchQuery}"`,
+      };
+    }
+
+    // Get grids for the game
+    await delay(RATE_LIMIT_DELAY);
+    const grids = await getGrids(sgdbGame.id);
+
+    if (grids.length === 0) {
+      return {
+        success: false,
+        gameId,
+        error: `No 600x900 covers found for "${sgdbGame.name}"`,
+        steamGridDBId: sgdbGame.id,
+        steamGridDBName: sgdbGame.name,
+      };
+    }
+
+    // Select best grid
+    const bestGrid = selectBestGrid(grids);
+
+    if (!bestGrid) {
+      return {
+        success: false,
+        gameId,
+        error: 'No suitable cover found',
+        steamGridDBId: sgdbGame.id,
+        steamGridDBName: sgdbGame.name,
+      };
+    }
+
+    // Update the game's cover URL in database
+    updateGameCover(gameId, bestGrid.url);
+
+    return {
+      success: true,
+      gameId,
+      coverUrl: bestGrid.url,
+      steamGridDBId: sgdbGame.id,
+      steamGridDBName: sgdbGame.name,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      gameId,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Fix multiple covers in batch
+ */
+export async function fixMultipleCovers(
+  games: Array<{ gameId: number; title: string }>,
+  onProgress?: (completed: number, total: number, current: string) => void
+): Promise<{
+  total: number;
+  success: number;
+  failed: number;
+  results: FixCoverResult[];
+}> {
+  const results: FixCoverResult[] = [];
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (let i = 0; i < games.length; i++) {
+    const game = games[i];
+
+    if (onProgress) {
+      onProgress(i, games.length, game.title);
+    }
+
+    // Rate limit between requests
+    if (i > 0) {
+      await delay(RATE_LIMIT_DELAY * 2); // Double delay for batch operations
+    }
+
+    const result = await fixSingleCover(game.gameId, game.title);
+    results.push(result);
+
+    if (result.success) {
+      successCount++;
+    } else {
+      failedCount++;
+    }
+  }
+
+  if (onProgress) {
+    onProgress(games.length, games.length, 'Done');
+  }
+
+  return {
+    total: games.length,
+    success: successCount,
+    failed: failedCount,
+    results,
+  };
+}

@@ -315,6 +315,23 @@ export default function AdminPage() {
           )}
         </section>
 
+        {/* Cover Audit Section */}
+        <section className="mt-8 bg-steam-bg-card rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-steam-text mb-4">
+            Cover Quality Audit
+          </h2>
+          <p className="text-steam-text-muted mb-4">
+            Analyze game covers for quality issues like pillarbox fills,
+            low-detail edges, and visible boundaries. Review and fix bad covers.
+          </p>
+          <Link
+            to="/admin/covers"
+            className="inline-block px-4 py-2 bg-steam-accent text-white rounded hover:bg-steam-accent/80 transition-colors"
+          >
+            Open Cover Audit
+          </Link>
+        </section>
+
         {/* JSON Format Reference */}
         <section className="mt-8 bg-steam-bg-card rounded-lg p-6">
           <h2 className="text-xl font-semibold text-steam-text mb-4">
