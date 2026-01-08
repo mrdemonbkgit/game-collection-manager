@@ -1,6 +1,6 @@
 # Claude Code Session Notes
 
-**Last Updated:** Phase 3 Complete (Filtering, Search & Sort Working)
+**Last Updated:** Phase 5 In Progress (Detail Pages, Assets, Ratings)
 
 ---
 
@@ -19,63 +19,47 @@ This is a **personal PC game collection manager** for a user with 2420+ Steam ga
 
 ## Current State
 
-### Phase 1: COMPLETE ✅ - Foundation + Steam Import
+### Phase 1-4: COMPLETE ✅
+
+- Foundation + Steam Import
+- Library Grid UI
+- Filtering, Search & Sort
+- Collections & Smart Filters
+
+### Phase 5: IN PROGRESS 🔄 - Detail Pages + Game Assets
 
 **What's working:**
-- Express server at `http://localhost:3001`
-- SQLite database using Node.js built-in `node:sqlite` module
-- Steam library sync (2,420 games imported successfully)
-- Full CRUD for games with filtering, pagination, sorting
-- 37 passing server unit tests
+- Game detail page with cinematic hero layout
+- SteamGridDB integration for covers, heroes, logos
+- Local asset caching (heroes/logos stored locally)
+- Cover fix page for manual corrections
+- Hero/Logo predownload (background sync for all games)
+- **Pagination** for library (replaced infinite scroll for simplicity)
+- **Steam Reviews API** integration for user ratings
 
-**API Endpoints:**
+**Recent Changes:**
+- Replaced infinite scroll with page-based pagination
+- Added Steam Reviews API to fetch rating percentages
+- Library now uses URL param `?page=N` for bookmarkable pages
+
+**API Endpoints (Phase 5):**
 ```
-GET  /api/health              - Health check
-GET  /api/games               - List games (supports ?search, ?genres, ?platforms, ?sortBy, ?sortOrder, ?limit, ?offset)
-GET  /api/games/:id           - Get single game
-GET  /api/games/count         - Total count
-GET  /api/games/filters       - Get filter options (platforms, genres, sortOptions)
-POST /api/sync/steam          - Full sync with details (slow, rate-limited)
-POST /api/sync/steam/quick    - Quick sync, basic info only (fast)
-GET  /api/sync/status         - Check sync configuration
-DELETE /api/sync/reset        - Clear all games
+GET  /api/games/slug/:slug       - Get game by URL slug
+GET  /api/games/:id/similar      - Get similar games
+GET  /api/games/:id/steamgrid-*  - Hero/logo options from SteamGridDB
+POST /api/games/:id/assets       - Save selected hero/logo
+POST /api/games/:id/refresh-rating - Refresh Steam rating for one game
+
+POST /api/sync/ratings           - Background sync all Steam ratings (~67 min)
+GET  /api/sync/ratings/status    - Check ratings sync progress
+GET  /api/sync/ratings/count     - Count games with/without ratings
+POST /api/sync/assets            - Predownload heroes/logos for all games
+GET  /api/sync/assets/status     - Check asset predownload progress
 ```
 
-**Database:** `./data/games.db` (SQLite)
-
-### Phase 2: COMPLETE ✅ - Library Grid UI
-
-**What's working:**
-- React frontend at `http://localhost:3000`
-- Dark theme with Steam-inspired design
-- Grid view displaying 2,420 games with cover art
-- Game cards with hover effects and platform badges
-- Infinite scroll with smooth loading
-- Responsive grid layout
-
-### Phase 3: COMPLETE ✅ - Filtering, Search & Sort
-
-**What's working:**
-- Search bar with debounced input (300ms)
-- Sort dropdown (Title A-Z/Z-A, Release Date, Metacritic, Date Added)
-- Filter sidebar (280px, always visible)
-- Platform filter with checkboxes
-- Genre filter (requires detailed sync to populate)
-- URL state persistence (shareable filter links)
-- "Showing X of Y games" count
-- Clear All Filters button
-
-**New Components:**
-- `SearchInput` - Debounced search with clear button
-- `SortDropdown` - Native select styled for Steam theme
-- `FilterSidebar` - Platform/genre checkboxes
-- `useFilterParams` - URL state management hook
-- `useFilterOptions` - Filter options from API with caching
-
-**Test Coverage:**
-- 84 passing client unit tests
-- 37 passing server unit tests
-- 47 passing Playwright E2E tests (19 new for filters)
+**Database fields for ratings:**
+- `steam_rating` - Percentage positive (0-100)
+- `steam_rating_count` - Total number of reviews
 
 ---
 
@@ -189,7 +173,7 @@ Build detail pages and subscription catalogs:
 | 2 | Library Grid UI | ✅ Complete |
 | 3 | Filtering, Search & Sort | ✅ Complete |
 | 4 | Collections & Smart Filters | ✅ Complete |
-| 5 | Detail Pages + Subscription Catalogs | 🔲 Next |
+| 5 | Detail Pages + Game Assets | 🔄 In Progress |
 | 6 | AI Curator (Gemini 3 Pro) | 🔲 Pending |
 | 7 | Polish + Deployment | 🔲 Pending |
 
@@ -306,7 +290,7 @@ Use the `/browser` skill for Chrome Bridge commands. The skill includes setup in
 Use `codex` CLI for code and planning review as a second opinion:
 
 ```bash
-codex -m gpt-5.2-codex --reasoning high "review this code/plan: <context>"
+codex exec -m gpt-5.2-codex -c reasoning_effort=high "review this code/plan: <context>"
 ```
 
 Always verify Codex findings independently - treat as suggestions, not authoritative answers.

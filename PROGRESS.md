@@ -125,6 +125,45 @@ This file tracks the development progress of the Game Collection Manager app.
 
 ---
 
+### Phase 5: Detail Pages + Game Assets (In Progress)
+
+| Task | Status |
+|------|--------|
+| Game detail page with cinematic hero | ✅ Complete |
+| Screenshots gallery | ✅ Complete |
+| Similar games section | ✅ Complete |
+| SteamGridDB integration for covers/heroes/logos | ✅ Complete |
+| Local asset caching (covers, heroes, logos) | ✅ Complete |
+| Cover fix page for manual corrections | ✅ Complete |
+| Hero/Logo predownload (background sync) | ✅ Complete |
+| Pagination for library (replaced infinite scroll) | ✅ Complete |
+| Steam Reviews API integration | ✅ Complete |
+| Community catalog import (Game Pass, EA Play, Ubisoft+) | 🔲 Pending |
+
+**New Components:**
+- `GameDetailPage` - Full game detail with cinematic hero
+- `CinematicHero` - Hero image with logo overlay
+- `RatingsCard` - Metacritic + Steam ratings display
+- `ScreenshotsGallery` - Fullscreen screenshot viewer
+- `SimilarGames` - Games with matching genres/tags
+- `Pagination` - Page-based navigation (replaced infinite scroll)
+
+**New API Endpoints:**
+- `GET /api/games/slug/:slug` - Get game by URL slug
+- `GET /api/games/:id/similar` - Get similar games
+- `GET /api/games/:id/steamgrid-assets` - Get hero/logo from SteamGridDB
+- `GET /api/games/:id/steamgrid-heroes` - Get hero options with pagination
+- `GET /api/games/:id/steamgrid-logos` - Get logo options with pagination
+- `POST /api/games/:id/assets` - Save selected hero/logo
+- `POST /api/games/:id/refresh-rating` - Refresh Steam rating for single game
+- `POST /api/sync/ratings` - Background sync of all Steam ratings
+- `GET /api/sync/ratings/status` - Check ratings sync progress
+- `GET /api/sync/ratings/count` - Count games with/without ratings
+- `POST /api/sync/assets` - Predownload heroes/logos for all games
+- `GET /api/sync/assets/status` - Check asset predownload progress
+
+---
+
 ## Next Steps
 
 ### Phase 5: Detail Pages + Subscription Catalogs

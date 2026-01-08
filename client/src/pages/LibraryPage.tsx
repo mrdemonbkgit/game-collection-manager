@@ -14,12 +14,13 @@ import { Collection, CreateCollectionInput, FilterCriteria } from '../types/coll
 import Header from '../components/Header';
 import FilterSidebar from '../components/FilterSidebar';
 import GameGrid from '../components/GameGrid';
+import Pagination from '../components/Pagination';
 import LoadingSpinner from '../components/LoadingSpinner';
 import CollectionModal from '../components/CollectionModal';
 import ManageCollectionsModal from '../components/ManageCollectionsModal';
 
 export default function LibraryPage() {
-  // Filter state from URL
+  // Filter state from URL (includes page)
   const {
     filters,
     setSearch,
@@ -30,6 +31,7 @@ export default function LibraryPage() {
     toggleCollection,
     setSort,
     setSortById,
+    setPage,
     clearFilters,
     hasActiveFilters,
   } = useFilterParams();
@@ -55,14 +57,15 @@ export default function LibraryPage() {
     fetchGameCount().then(setTotalCount).catch(console.error);
   }, []);
 
-  // Games with filters applied
-  const { games, total, loading, error, hasMore, loadMore } = useGames({
+  // Games with filters and pagination applied
+  const { games, total, loading, error, totalPages } = useGames({
     search: filters.search || undefined,
     platforms: filters.platforms.length > 0 ? filters.platforms : undefined,
     genres: filters.genres.length > 0 ? filters.genres : undefined,
     collections: filters.collectionIds.length > 0 ? filters.collectionIds : undefined,
     sortBy: filters.sortBy,
     sortOrder: filters.sortOrder,
+    page: filters.page,
   });
 
   // Handle creating a collection
@@ -83,8 +86,6 @@ export default function LibraryPage() {
   // Handle adding/removing a game from a collection
   const handleToggleGameInCollection = useCallback(
     async (collectionId: number, gameId: number) => {
-      // For now, we just add. To toggle, we'd need to track which games are in which collections.
-      // This is a simplification - in a full implementation we'd check membership first.
       try {
         await addGameToCollection(collectionId, gameId);
         clearCollectionsCache();
@@ -127,18 +128,27 @@ export default function LibraryPage() {
   // Handle applying smart filter criteria
   const handleApplySmartFilter = useCallback(
     (criteria: FilterCriteria) => {
-      // Clear existing filters first
       clearFilters();
-
-      // Apply the saved criteria
       if (criteria.search) setSearch(criteria.search);
       if (criteria.platforms?.length) setPlatforms(criteria.platforms);
       if (criteria.genres?.length) setGenres(criteria.genres);
       if (criteria.sortBy && criteria.sortOrder) {
-        setSort(criteria.sortBy as 'title' | 'release_date' | 'metacritic_score' | 'created_at', criteria.sortOrder as 'asc' | 'desc');
+        setSort(
+          criteria.sortBy as 'title' | 'release_date' | 'metacritic_score' | 'created_at',
+          criteria.sortOrder as 'asc' | 'desc'
+        );
       }
     },
     [clearFilters, setSearch, setPlatforms, setGenres, setSort]
+  );
+
+  // Handle page change - scroll to top
+  const handlePageChange = useCallback(
+    (page: number) => {
+      setPage(page);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    [setPage]
   );
 
   // Build current sort ID for the dropdown
@@ -194,7 +204,9 @@ export default function LibraryPage() {
           {sidebarElement}
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <p data-testid="error-message" className="text-red-400 mb-4">Error: {error}</p>
+              <p data-testid="error-message" className="text-red-400 mb-4">
+                Error: {error}
+              </p>
               <button
                 data-testid="retry-button"
                 onClick={() => window.location.reload()}
@@ -251,21 +263,23 @@ export default function LibraryPage() {
     );
   }
 
-  // Main grid view
+  // Main grid view with pagination
   return (
     <div className="h-full flex flex-col">
       {headerElement}
       <div className="flex-1 flex min-h-0">
         {sidebarElement}
-        <main className="flex-1 flex flex-col py-4 min-h-0">
+        <main className="flex-1 overflow-y-auto py-4">
           <GameGrid
             games={games}
-            total={total}
-            hasMore={hasMore}
             loading={loading}
-            onLoadMore={loadMore}
             collections={collections}
             onAddToCollection={handleToggleGameInCollection}
+          />
+          <Pagination
+            currentPage={filters.page}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
           />
         </main>
       </div>

@@ -11,6 +11,7 @@ export interface FilterState {
   collectionIds: number[];
   sortBy: SortByType;
   sortOrder: SortOrderType;
+  page: number;
 }
 
 interface UseFilterParamsResult {
@@ -24,6 +25,7 @@ interface UseFilterParamsResult {
   toggleCollection: (collectionId: number) => void;
   setSort: (sortBy: SortByType, sortOrder: SortOrderType) => void;
   setSortById: (sortId: string) => void;
+  setPage: (page: number) => void;
   clearFilters: () => void;
   hasActiveFilters: boolean;
 }
@@ -63,14 +65,19 @@ export function useFilterParams(): UseFilterParamsResult {
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Parse current URL state
-  const filters = useMemo((): FilterState => ({
-    search: searchParams.get('search') || '',
-    platforms: parseArrayParam(searchParams.get('platforms')),
-    genres: parseArrayParam(searchParams.get('genres')),
-    collectionIds: parseArrayParam(searchParams.get('collections')).map(Number).filter(n => !isNaN(n)),
-    sortBy: validateSortBy(searchParams.get('sortBy')),
-    sortOrder: validateSortOrder(searchParams.get('sortOrder')),
-  }), [searchParams]);
+  const filters = useMemo((): FilterState => {
+    const pageParam = searchParams.get('page');
+    const page = pageParam ? Math.max(1, parseInt(pageParam, 10) || 1) : 1;
+    return {
+      search: searchParams.get('search') || '',
+      platforms: parseArrayParam(searchParams.get('platforms')),
+      genres: parseArrayParam(searchParams.get('genres')),
+      collectionIds: parseArrayParam(searchParams.get('collections')).map(Number).filter(n => !isNaN(n)),
+      sortBy: validateSortBy(searchParams.get('sortBy')),
+      sortOrder: validateSortOrder(searchParams.get('sortOrder')),
+      page,
+    };
+  }, [searchParams]);
 
   // Check if any filters are active (not including default sort)
   const hasActiveFilters = useMemo(() => {
@@ -102,7 +109,7 @@ export function useFilterParams(): UseFilterParamsResult {
     }, { replace: options.replace });
   }, [setSearchParams]);
 
-  // Debounced search - uses replace to avoid history spam
+  // Debounced search - uses replace to avoid history spam, resets page to 1
   const setSearch = useCallback((value: string) => {
     setSearchInput(value);
 
@@ -111,7 +118,7 @@ export function useFilterParams(): UseFilterParamsResult {
     }
 
     searchTimeoutRef.current = setTimeout(() => {
-      updateParams({ search: value || null }, { replace: true });
+      updateParams({ search: value || null, page: null }, { replace: true });
     }, SEARCH_DEBOUNCE_MS);
   }, [updateParams]);
 
@@ -132,10 +139,11 @@ export function useFilterParams(): UseFilterParamsResult {
     };
   }, []);
 
-  // Platform setters - use push for discrete changes
+  // Platform setters - use push for discrete changes, reset page
   const setPlatforms = useCallback((platforms: string[]) => {
     updateParams({
       platforms: platforms.length > 0 ? platforms.join(',') : null,
+      page: null,
     });
   }, [updateParams]);
 
@@ -147,10 +155,11 @@ export function useFilterParams(): UseFilterParamsResult {
     setPlatforms(newPlatforms);
   }, [searchParams, setPlatforms]);
 
-  // Genre setters
+  // Genre setters - reset page
   const setGenres = useCallback((genres: string[]) => {
     updateParams({
       genres: genres.length > 0 ? genres.join(',') : null,
+      page: null,
     });
   }, [updateParams]);
 
@@ -162,10 +171,11 @@ export function useFilterParams(): UseFilterParamsResult {
     setGenres(newGenres);
   }, [searchParams, setGenres]);
 
-  // Collection setters
+  // Collection setters - reset page
   const setCollections = useCallback((ids: number[]) => {
     updateParams({
       collections: ids.length > 0 ? ids.join(',') : null,
+      page: null,
     });
   }, [updateParams]);
 
@@ -177,13 +187,14 @@ export function useFilterParams(): UseFilterParamsResult {
     setCollections(newIds);
   }, [filters.collectionIds, setCollections]);
 
-  // Sort setters
+  // Sort setters - reset page
   const setSort = useCallback((sortBy: SortByType, sortOrder: SortOrderType) => {
     const updates: Partial<Record<string, string | null>> = {};
 
     // Only include if not default
     updates.sortBy = sortBy !== DEFAULT_SORT_BY ? sortBy : null;
     updates.sortOrder = sortOrder !== DEFAULT_SORT_ORDER ? sortOrder : null;
+    updates.page = null; // Reset page when sort changes
 
     // If sortBy is set but sortOrder is default, still need to set sortOrder
     // to maintain clarity in the URL
@@ -215,6 +226,13 @@ export function useFilterParams(): UseFilterParamsResult {
     }
   }, [setSort]);
 
+  // Page setter
+  const setPage = useCallback((page: number) => {
+    updateParams({
+      page: page > 1 ? page.toString() : null,
+    });
+  }, [updateParams]);
+
   // Clear all filters
   const clearFilters = useCallback(() => {
     setSearchInput('');
@@ -225,6 +243,7 @@ export function useFilterParams(): UseFilterParamsResult {
       collections: null,
       sortBy: null,
       sortOrder: null,
+      page: null,
     });
   }, [updateParams]);
 
@@ -242,6 +261,7 @@ export function useFilterParams(): UseFilterParamsResult {
     toggleCollection,
     setSort,
     setSortById,
+    setPage,
     clearFilters,
     hasActiveFilters,
   };

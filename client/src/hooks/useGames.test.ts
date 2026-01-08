@@ -1,22 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor, act } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { useGames } from './useGames';
 
 // Mock the gamesService
 vi.mock('../services/gamesService', () => ({
   fetchGames: vi.fn(),
-}));
-
-// Mock the debug utility
-vi.mock('../utils/debug', () => ({
-  debug: {
-    log: vi.fn(),
-    logCallback: vi.fn(),
-    logRender: vi.fn(),
-    logState: vi.fn(),
-  },
-  useRenderLogger: vi.fn(),
-  useStateLogger: vi.fn(),
 }));
 
 import { fetchGames } from '../services/gamesService';
@@ -65,7 +53,7 @@ describe('useGames', () => {
       items: [mockGame(1), mockGame(2)],
       total: 2,
       page: 1,
-      pageSize: 50,
+      pageSize: 48,
       totalPages: 1,
     };
 
@@ -95,13 +83,13 @@ describe('useGames', () => {
     expect(result.current.games).toEqual([]);
   });
 
-  it('should set hasMore correctly when more data available', async () => {
+  it('should calculate totalPages correctly', async () => {
     const mockResponse = {
-      items: Array.from({ length: 50 }, (_, i) => mockGame(i + 1)),
+      items: Array.from({ length: 48 }, (_, i) => mockGame(i + 1)),
       total: 100,
       page: 1,
-      pageSize: 50,
-      totalPages: 2,
+      pageSize: 48,
+      totalPages: 3,
     };
 
     vi.mocked(fetchGames).mockResolvedValueOnce(mockResponse);
@@ -112,132 +100,7 @@ describe('useGames', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(result.current.hasMore).toBe(true);
-  });
-
-  it('should set hasMore to false when all data loaded', async () => {
-    const mockResponse = {
-      items: [mockGame(1), mockGame(2)],
-      total: 2,
-      page: 1,
-      pageSize: 50,
-      totalPages: 1,
-    };
-
-    vi.mocked(fetchGames).mockResolvedValueOnce(mockResponse);
-
-    const { result } = renderHook(() => useGames());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    expect(result.current.hasMore).toBe(false);
-  });
-
-  it('should load more games when loadMore is called', async () => {
-    const page1Response = {
-      items: Array.from({ length: 50 }, (_, i) => mockGame(i + 1)),
-      total: 75,
-      page: 1,
-      pageSize: 50,
-      totalPages: 2,
-    };
-
-    const page2Response = {
-      items: Array.from({ length: 25 }, (_, i) => mockGame(i + 51)),
-      total: 75,
-      page: 2,
-      pageSize: 50,
-      totalPages: 2,
-    };
-
-    vi.mocked(fetchGames)
-      .mockResolvedValueOnce(page1Response)
-      .mockResolvedValueOnce(page2Response);
-
-    const { result } = renderHook(() => useGames());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    expect(result.current.games).toHaveLength(50);
-
-    // Wait a bit for throttle then load more
-    await new Promise((r) => setTimeout(r, 350));
-
-    await act(async () => {
-      result.current.loadMore();
-    });
-
-    await waitFor(() => {
-      expect(result.current.games).toHaveLength(75);
-    });
-  });
-
-  it('should not load more when no more data', async () => {
-    const mockResponse = {
-      items: [mockGame(1), mockGame(2)],
-      total: 2,
-      page: 1,
-      pageSize: 50,
-      totalPages: 1,
-    };
-
-    vi.mocked(fetchGames).mockResolvedValueOnce(mockResponse);
-
-    const { result } = renderHook(() => useGames());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    // Wait for throttle
-    await new Promise((r) => setTimeout(r, 350));
-
-    await act(async () => {
-      result.current.loadMore();
-    });
-
-    // Should only have been called once (initial load)
-    expect(fetchGames).toHaveBeenCalledTimes(1);
-  });
-
-  it('should refresh data when refresh is called', async () => {
-    const initialResponse = {
-      items: [mockGame(1)],
-      total: 1,
-      page: 1,
-      pageSize: 50,
-      totalPages: 1,
-    };
-
-    const refreshResponse = {
-      items: [mockGame(1), mockGame(2)],
-      total: 2,
-      page: 1,
-      pageSize: 50,
-      totalPages: 1,
-    };
-
-    vi.mocked(fetchGames)
-      .mockResolvedValueOnce(initialResponse)
-      .mockResolvedValueOnce(refreshResponse);
-
-    const { result } = renderHook(() => useGames());
-
-    await waitFor(() => {
-      expect(result.current.games).toHaveLength(1);
-    });
-
-    await act(async () => {
-      result.current.refresh();
-    });
-
-    await waitFor(() => {
-      expect(result.current.games).toHaveLength(2);
-    });
+    expect(result.current.totalPages).toBe(3); // ceil(100/48) = 3
   });
 
   it('should reload when params change', async () => {
@@ -245,7 +108,7 @@ describe('useGames', () => {
       items: [mockGame(1)],
       total: 1,
       page: 1,
-      pageSize: 50,
+      pageSize: 48,
       totalPages: 1,
     };
 
@@ -253,7 +116,7 @@ describe('useGames', () => {
       items: [mockGame(2), mockGame(3)],
       total: 2,
       page: 1,
-      pageSize: 50,
+      pageSize: 48,
       totalPages: 1,
     };
 
@@ -281,12 +144,52 @@ describe('useGames', () => {
     expect(fetchGames).toHaveBeenCalledTimes(2);
   });
 
+  it('should reload when page changes', async () => {
+    const page1Response = {
+      items: Array.from({ length: 48 }, (_, i) => mockGame(i + 1)),
+      total: 96,
+      page: 1,
+      pageSize: 48,
+      totalPages: 2,
+    };
+
+    const page2Response = {
+      items: Array.from({ length: 48 }, (_, i) => mockGame(i + 49)),
+      total: 96,
+      page: 2,
+      pageSize: 48,
+      totalPages: 2,
+    };
+
+    vi.mocked(fetchGames)
+      .mockResolvedValueOnce(page1Response)
+      .mockResolvedValueOnce(page2Response);
+
+    const { result, rerender } = renderHook(
+      ({ page }: { page: number }) => useGames({ page }),
+      { initialProps: { page: 1 } }
+    );
+
+    await waitFor(() => {
+      expect(result.current.games[0].title).toBe('Game 1');
+    });
+
+    // Change to page 2
+    rerender({ page: 2 });
+
+    await waitFor(() => {
+      expect(result.current.games[0].title).toBe('Game 49');
+    });
+
+    expect(fetchGames).toHaveBeenCalledTimes(2);
+  });
+
   it('should not reload when params object is same values', async () => {
     const mockResponse = {
       items: [mockGame(1)],
       total: 1,
       page: 1,
-      pageSize: 50,
+      pageSize: 48,
       totalPages: 1,
     };
 
@@ -311,57 +214,5 @@ describe('useGames', () => {
 
     // Should not have called fetchGames again
     expect(fetchGames).toHaveBeenCalledTimes(callCountAfterInit);
-  });
-
-  it('should throttle loadMore calls', async () => {
-    const page1Response = {
-      items: Array.from({ length: 50 }, (_, i) => mockGame(i + 1)),
-      total: 200,
-      page: 1,
-      pageSize: 50,
-      totalPages: 4,
-    };
-
-    const page2Response = {
-      items: Array.from({ length: 50 }, (_, i) => mockGame(i + 51)),
-      total: 200,
-      page: 2,
-      pageSize: 50,
-      totalPages: 4,
-    };
-
-    vi.mocked(fetchGames)
-      .mockResolvedValueOnce(page1Response)
-      .mockResolvedValue(page2Response);
-
-    const { result } = renderHook(() => useGames());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    const callCountAfterInit = vi.mocked(fetchGames).mock.calls.length;
-
-    // Wait for throttle window to pass
-    await new Promise((r) => setTimeout(r, 350));
-
-    // Rapid fire loadMore calls - first call should go through, rest should be throttled
-    await act(async () => {
-      result.current.loadMore();
-    });
-
-    // Wait for the load to complete
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    // Try more rapid calls immediately - these should be throttled
-    await act(async () => {
-      result.current.loadMore();
-      result.current.loadMore();
-    });
-
-    // Should only have added 1 call due to throttling
-    expect(fetchGames).toHaveBeenCalledTimes(callCountAfterInit + 1);
   });
 });

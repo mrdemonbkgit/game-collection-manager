@@ -507,6 +507,52 @@ export function updateGameMetadata(
   return result.changes > 0;
 }
 
+/**
+ * Update Steam rating data for a game
+ */
+export function updateGameSteamRating(
+  steamAppId: number,
+  rating: number,
+  ratingCount: number
+): boolean {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    UPDATE games
+    SET steam_rating = ?, steam_rating_count = ?, updated_at = datetime('now')
+    WHERE steam_app_id = ?
+  `);
+  const result = stmt.run(rating, ratingCount, steamAppId);
+  return result.changes > 0;
+}
+
+/**
+ * Get all games with Steam App IDs that are missing ratings
+ */
+export function getGamesWithoutRatings(): Array<{ id: number; steamAppId: number; title: string }> {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT id, steam_app_id as steamAppId, title
+    FROM games
+    WHERE steam_app_id IS NOT NULL AND steam_rating IS NULL
+    ORDER BY title
+  `);
+  return stmt.all() as Array<{ id: number; steamAppId: number; title: string }>;
+}
+
+/**
+ * Get all games with Steam App IDs (for full ratings sync)
+ */
+export function getAllSteamGames(): Array<{ id: number; steamAppId: number; title: string }> {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT id, steam_app_id as steamAppId, title
+    FROM games
+    WHERE steam_app_id IS NOT NULL
+    ORDER BY title
+  `);
+  return stmt.all() as Array<{ id: number; steamAppId: number; title: string }>;
+}
+
 // Acronyms that should stay uppercase
 const GENRE_ACRONYMS = new Set(['RPG', 'MMO', 'MMORPG', 'FPS', 'RTS', 'VR', 'AR', 'PVP', 'PVE', 'DLC']);
 

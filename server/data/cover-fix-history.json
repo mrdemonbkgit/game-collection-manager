@@ -2275,12 +2275,14 @@
   },
   "1133": {
     "gridIds": [
-      44991
+      44991,
+      71247
     ],
     "triedUrls": [
-      "https://cdn2.steamgriddb.com/grid/04e28059dc3f7c648f544bf985f09e3a.png"
+      "https://cdn2.steamgriddb.com/grid/04e28059dc3f7c648f544bf985f09e3a.png",
+      "https://cdn2.steamgriddb.com/grid/e92d27eedb47489fb590525856d0c063.png"
     ],
-    "lastTryTime": 1767886272816
+    "lastTryTime": 1767897695060
   },
   "1134": {
     "gridIds": [

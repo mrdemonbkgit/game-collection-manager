@@ -15,9 +15,10 @@ import {
   updateGameAssets,
   markAssetsChecked,
   getGameById,
+  getAllGames,
 } from '../db/repositories/gameRepository.js';
 import { downloadCover } from './localCoverService.js';
-import { downloadGameAssets, getLocalAssetUrl, downloadAsset } from './localAssetsService.js';
+import { downloadGameAssets, getLocalAssetUrl, downloadAsset, hasLocalAsset } from './localAssetsService.js';
 
 const API_BASE = 'https://www.steamgriddb.com/api/v2';
 const RATE_LIMIT_DELAY = 250; // 250ms between requests (4 req/sec)
@@ -1269,4 +1270,104 @@ export async function saveSelectedAssets(
 
   const success = errors.length === 0 && !!(heroLocalUrl || logoLocalUrl);
   return { success, heroLocalUrl, logoLocalUrl, errors };
+}
+
+// ============================================================
+// BATCH PREDOWNLOAD HEROES AND LOGOS
+// ============================================================
+
+export interface PredownloadProgress {
+  total: number;
+  completed: number;
+  downloaded: number;
+  skipped: number;
+  failed: number;
+  currentGame: string;
+}
+
+export interface PredownloadResult {
+  total: number;
+  downloaded: number;
+  skipped: number;
+  failed: number;
+  errors: Array<{ gameId: number; title: string; error: string }>;
+}
+
+/**
+ * Predownload heroes and logos for all games that don't have them locally cached
+ */
+export async function predownloadAllAssets(
+  onProgress?: (progress: PredownloadProgress) => void
+): Promise<PredownloadResult> {
+  // Get all games
+  const { games } = getAllGames({ limit: 10000 });
+
+  // Filter to games missing heroes OR logos
+  const gamesNeedingAssets = games.filter(game => {
+    const hasHero = hasLocalAsset(game.id, 'hero') !== null;
+    const hasLogo = hasLocalAsset(game.id, 'logo') !== null;
+    return !hasHero || !hasLogo;
+  });
+
+  const result: PredownloadResult = {
+    total: gamesNeedingAssets.length,
+    downloaded: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [],
+  };
+
+  console.log(`[SteamGridDB] Starting predownload for ${gamesNeedingAssets.length} games missing assets...`);
+
+  for (let i = 0; i < gamesNeedingAssets.length; i++) {
+    const game = gamesNeedingAssets[i];
+
+    if (onProgress) {
+      onProgress({
+        total: gamesNeedingAssets.length,
+        completed: i,
+        downloaded: result.downloaded,
+        skipped: result.skipped,
+        failed: result.failed,
+        currentGame: game.title,
+      });
+    }
+
+    try {
+      // getHeroAndLogo handles caching logic and downloads missing assets
+      const assets = await getHeroAndLogo(game.id);
+
+      if (assets.heroUrl || assets.logoUrl) {
+        result.downloaded++;
+      } else {
+        result.skipped++;
+      }
+
+      // Rate limit between games
+      await delay(RATE_LIMIT_DELAY);
+    } catch (error) {
+      result.failed++;
+      result.errors.push({
+        gameId: game.id,
+        title: game.title,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  // Final progress
+  if (onProgress) {
+    onProgress({
+      total: gamesNeedingAssets.length,
+      completed: gamesNeedingAssets.length,
+      downloaded: result.downloaded,
+      skipped: result.skipped,
+      failed: result.failed,
+      currentGame: 'Done',
+    });
+  }
+
+  console.log(`[SteamGridDB] Predownload complete: ${result.downloaded} downloaded, ${result.skipped} skipped, ${result.failed} failed`);
+
+  return result;
 }

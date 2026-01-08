@@ -30,6 +30,7 @@ describe('CollectionModal', () => {
     collectionIds: [],
     sortBy: 'metacritic_score',
     sortOrder: 'desc',
+    page: 1,
   };
 
   const mockFiltersDefault: FilterState = {
@@ -39,6 +40,7 @@ describe('CollectionModal', () => {
     collectionIds: [],
     sortBy: 'title',
     sortOrder: 'asc',
+    page: 1,
   };
 
   beforeEach(() => {
@@ -114,6 +116,7 @@ describe('CollectionModal', () => {
       const filters: FilterState = {
         ...mockFiltersDefault,
         search: 'test',
+        page: 1,
       };
       render(<CollectionModal {...defaultProps} currentFilters={filters} />);
       expect(screen.getByTestId('smart-filter-checkbox')).toBeInTheDocument();
@@ -123,6 +126,7 @@ describe('CollectionModal', () => {
       const filters: FilterState = {
         ...mockFiltersDefault,
         sortBy: 'release_date',
+        page: 1,
       };
       render(<CollectionModal {...defaultProps} currentFilters={filters} />);
       expect(screen.getByTestId('smart-filter-checkbox')).toBeInTheDocument();
@@ -238,6 +242,7 @@ describe('CollectionModal', () => {
         ...mockFiltersDefault,
         genres: ['Action'],
         sortOrder: 'desc', // Changed but sortBy still default
+        page: 1,
       };
       render(
         <CollectionModal {...defaultProps} currentFilters={partialFilters} />

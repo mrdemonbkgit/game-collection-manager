@@ -19,6 +19,8 @@ import {
   getLogoOptions,
   saveSelectedAssets,
 } from '../services/steamGridDBService.js';
+import { fetchSteamReviews } from '../services/steamService.js';
+import { updateGameSteamRating } from '../db/repositories/gameRepository.js';
 
 const router = Router();
 
@@ -359,6 +361,58 @@ router.get('/:id/similar', (req, res) => {
     res.json({ success: true, data: parsedGames });
   } catch (error) {
     console.error('Error fetching similar games:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// POST /api/games/:id/refresh-rating - Refresh Steam rating for a single game
+router.post('/:id/refresh-rating', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+
+    if (isNaN(id)) {
+      res.status(400).json({ success: false, error: 'Invalid game ID' });
+      return;
+    }
+
+    const game = getGameById(id);
+
+    if (!game) {
+      res.status(404).json({ success: false, error: 'Game not found' });
+      return;
+    }
+
+    if (!game.steam_app_id) {
+      res.status(400).json({ success: false, error: 'Game does not have a Steam App ID' });
+      return;
+    }
+
+    // Fetch reviews from Steam API
+    const reviews = await fetchSteamReviews(game.steam_app_id);
+
+    if (!reviews) {
+      res.status(404).json({ success: false, error: 'Could not fetch reviews from Steam' });
+      return;
+    }
+
+    // Update the database
+    updateGameSteamRating(game.steam_app_id, reviews.rating, reviews.totalReviews);
+
+    res.json({
+      success: true,
+      data: {
+        steamRating: reviews.rating,
+        steamRatingCount: reviews.totalReviews,
+        reviewScoreDesc: reviews.reviewScoreDesc,
+        totalPositive: reviews.totalPositive,
+        totalNegative: reviews.totalNegative,
+      },
+    });
+  } catch (error) {
+    console.error('Error refreshing game rating:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

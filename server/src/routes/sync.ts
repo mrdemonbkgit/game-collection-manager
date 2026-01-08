@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { syncSteamLibrary, quickSyncSteamLibrary } from '../services/steamService.js';
+import { syncSteamLibrary, quickSyncSteamLibrary, fetchSteamReviews } from '../services/steamService.js';
 import {
   clearAllGames,
   getGameCount,
@@ -7,6 +7,9 @@ import {
   getGamesWithoutGenres,
   updateGameMetadata,
   normalizeAllGenres,
+  updateGameSteamRating,
+  getGamesWithoutRatings,
+  getAllSteamGames,
 } from '../db/repositories/gameRepository.js';
 import {
   syncGenresFromSteamSpy,
@@ -35,8 +38,11 @@ import {
   fixMultipleCovers,
   getCoverFixHistory,
   clearTriedCovers,
+  predownloadAllAssets,
   type SteamGridDBProgress,
   type SteamGridDBResult,
+  type PredownloadProgress,
+  type PredownloadResult,
 } from '../services/steamGridDBService.js';
 import { getGamesWithHorizontalCovers } from '../db/repositories/gameRepository.js';
 import { getGamesWithoutCovers } from '../db/repositories/gameRepository.js';
@@ -303,6 +309,223 @@ router.get('/genres/status', (_req, res) => {
     });
   } catch (error) {
     console.error('Error getting genre sync status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// ============================================================================
+// Steam Ratings Sync Endpoints
+// ============================================================================
+
+interface RatingsSyncProgress {
+  total: number;
+  completed: number;
+  updated: number;
+  failed: number;
+  currentGame: string;
+}
+
+interface RatingsSyncResult {
+  total: number;
+  updated: number;
+  failed: number;
+  skipped: number;
+}
+
+// Ratings sync state (in-memory)
+let ratingsSyncState: {
+  inProgress: boolean;
+  progress: RatingsSyncProgress | null;
+  result: RatingsSyncResult | null;
+  startTime: number | null;
+} = {
+  inProgress: false,
+  progress: null,
+  result: null,
+  startTime: null,
+};
+
+// Rate limit delay for Steam Reviews API (same as Store API)
+const RATINGS_RATE_LIMIT = 1500; // 1.5 seconds
+
+function delayMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// POST /api/sync/ratings - Sync Steam ratings for all games
+router.post('/ratings', async (req, res) => {
+  try {
+    if (ratingsSyncState.inProgress) {
+      res.status(409).json({
+        success: false,
+        error: 'Ratings sync already in progress',
+        progress: ratingsSyncState.progress,
+      });
+      return;
+    }
+
+    // Check if we should only sync missing ratings or all
+    const fullSync = req.query.full === 'true';
+    const games = fullSync ? getAllSteamGames() : getGamesWithoutRatings();
+
+    if (games.length === 0) {
+      res.json({
+        success: true,
+        message: fullSync ? 'No Steam games found' : 'All games already have ratings',
+        data: { total: 0, updated: 0, failed: 0, skipped: 0 },
+      });
+      return;
+    }
+
+    ratingsSyncState = {
+      inProgress: true,
+      progress: {
+        total: games.length,
+        completed: 0,
+        updated: 0,
+        failed: 0,
+        currentGame: '',
+      },
+      result: null,
+      startTime: Date.now(),
+    };
+
+    console.log(`Starting ratings sync for ${games.length} games (full=${fullSync})...`);
+
+    // Run in background
+    (async () => {
+      let updated = 0;
+      let failed = 0;
+      let skipped = 0;
+
+      for (let i = 0; i < games.length; i++) {
+        const game = games[i];
+
+        ratingsSyncState.progress = {
+          total: games.length,
+          completed: i,
+          updated,
+          failed,
+          currentGame: game.title,
+        };
+
+        try {
+          // Rate limit
+          if (i > 0) {
+            await delayMs(RATINGS_RATE_LIMIT);
+          }
+
+          const reviews = await fetchSteamReviews(game.steamAppId);
+
+          if (reviews && reviews.totalReviews > 0) {
+            updateGameSteamRating(game.steamAppId, reviews.rating, reviews.totalReviews);
+            updated++;
+          } else {
+            skipped++;
+          }
+        } catch (error) {
+          console.warn(`Failed to fetch ratings for ${game.title}:`, error);
+          failed++;
+        }
+
+        // Log progress every 50 games
+        if ((i + 1) % 50 === 0 || i === games.length - 1) {
+          console.log(
+            `[Ratings Sync] ${i + 1}/${games.length} - Updated: ${updated}, Failed: ${failed}, Skipped: ${skipped}`
+          );
+        }
+      }
+
+      ratingsSyncState.inProgress = false;
+      ratingsSyncState.result = {
+        total: games.length,
+        updated,
+        failed,
+        skipped,
+      };
+      ratingsSyncState.progress = {
+        total: games.length,
+        completed: games.length,
+        updated,
+        failed,
+        currentGame: '',
+      };
+
+      console.log(`Ratings sync complete: ${updated} updated, ${failed} failed, ${skipped} skipped`);
+    })().catch((error) => {
+      ratingsSyncState.inProgress = false;
+      console.error('Ratings sync error:', error);
+    });
+
+    // Calculate estimated time
+    const estimatedMinutes = Math.ceil((games.length * RATINGS_RATE_LIMIT) / 1000 / 60);
+
+    res.json({
+      success: true,
+      message: 'Ratings sync started',
+      data: {
+        total: games.length,
+        estimatedMinutes,
+        fullSync,
+      },
+    });
+  } catch (error) {
+    console.error('Error starting ratings sync:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/ratings/status - Get ratings sync status
+router.get('/ratings/status', (_req, res) => {
+  try {
+    const elapsedMs = ratingsSyncState.startTime
+      ? Date.now() - ratingsSyncState.startTime
+      : 0;
+
+    // Also get count of games without ratings
+    const gamesWithoutRatings = getGamesWithoutRatings();
+
+    res.json({
+      success: true,
+      data: {
+        inProgress: ratingsSyncState.inProgress,
+        progress: ratingsSyncState.progress,
+        result: ratingsSyncState.result,
+        elapsedSeconds: Math.floor(elapsedMs / 1000),
+        gamesWithoutRatings: gamesWithoutRatings.length,
+      },
+    });
+  } catch (error) {
+    console.error('Error getting ratings sync status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/ratings/count - Get count of games without ratings
+router.get('/ratings/count', (_req, res) => {
+  try {
+    const gamesWithoutRatings = getGamesWithoutRatings();
+    const allSteamGames = getAllSteamGames();
+
+    res.json({
+      success: true,
+      data: {
+        withoutRatings: gamesWithoutRatings.length,
+        totalSteamGames: allSteamGames.length,
+        withRatings: allSteamGames.length - gamesWithoutRatings.length,
+      },
+    });
+  } catch (error) {
+    console.error('Error getting ratings count:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -1222,6 +1445,111 @@ router.get('/covers/fix-history', (_req, res) => {
     });
   } catch (error) {
     console.error('Error getting cover fix history:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// ============================================================================
+// Hero/Logo Asset Predownload Endpoints
+// ============================================================================
+
+// Asset predownload state
+let assetPredownloadState: {
+  inProgress: boolean;
+  progress: PredownloadProgress | null;
+  result: PredownloadResult | null;
+  startTime: number | null;
+} = {
+  inProgress: false,
+  progress: null,
+  result: null,
+  startTime: null,
+};
+
+// POST /api/sync/assets - Predownload heroes and logos for all games
+router.post('/assets', async (_req, res) => {
+  try {
+    if (assetPredownloadState.inProgress) {
+      res.status(409).json({
+        success: false,
+        error: 'Asset predownload already in progress',
+        progress: assetPredownloadState.progress,
+      });
+      return;
+    }
+
+    if (!process.env.STEAMGRIDDB_API_KEY) {
+      res.status(400).json({
+        success: false,
+        error: 'STEAMGRIDDB_API_KEY not configured in environment',
+      });
+      return;
+    }
+
+    assetPredownloadState = {
+      inProgress: true,
+      progress: null,
+      result: null,
+      startTime: Date.now(),
+    };
+
+    console.log('Starting hero/logo asset predownload...');
+
+    // Run in background
+    predownloadAllAssets((progress) => {
+      assetPredownloadState.progress = progress;
+      if (progress.completed % 50 === 0 || progress.completed === progress.total) {
+        console.log(
+          `[Asset Predownload] ${progress.completed}/${progress.total} - Downloaded: ${progress.downloaded}, Skipped: ${progress.skipped}, Failed: ${progress.failed}`
+        );
+      }
+    })
+      .then((result) => {
+        assetPredownloadState.inProgress = false;
+        assetPredownloadState.result = result;
+        console.log(
+          `Asset predownload complete: ${result.downloaded} downloaded, ${result.skipped} skipped, ${result.failed} failed`
+        );
+      })
+      .catch((error) => {
+        assetPredownloadState.inProgress = false;
+        console.error('Asset predownload error:', error);
+      });
+
+    res.json({
+      success: true,
+      message: 'Asset predownload started',
+    });
+  } catch (error) {
+    console.error('Error starting asset predownload:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/assets/status - Get asset predownload status
+router.get('/assets/status', (_req, res) => {
+  try {
+    const elapsedMs = assetPredownloadState.startTime
+      ? Date.now() - assetPredownloadState.startTime
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        inProgress: assetPredownloadState.inProgress,
+        progress: assetPredownloadState.progress,
+        result: assetPredownloadState.result,
+        elapsedSeconds: Math.floor(elapsedMs / 1000),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting asset predownload status:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

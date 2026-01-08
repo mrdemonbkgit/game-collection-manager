@@ -47,6 +47,27 @@ interface SteamAppDetails {
   };
 }
 
+// Steam Reviews API response
+interface SteamReviewsResponse {
+  success: number;
+  query_summary: {
+    num_reviews: number;
+    review_score: number;
+    review_score_desc: string;
+    total_positive: number;
+    total_negative: number;
+    total_reviews: number;
+  };
+}
+
+export interface SteamReviewData {
+  rating: number; // Percentage positive (0-100)
+  totalReviews: number;
+  totalPositive: number;
+  totalNegative: number;
+  reviewScoreDesc: string; // "Overwhelmingly Positive", "Very Positive", etc.
+}
+
 const STEAM_API_BASE = 'https://api.steampowered.com';
 const STEAM_STORE_API = 'https://store.steampowered.com/api';
 
@@ -99,6 +120,47 @@ export async function fetchSteamAppDetails(appId: number): Promise<SteamAppDetai
     return appData.data;
   } catch (error) {
     console.warn(`Error fetching details for app ${appId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Fetch Steam review summary for a game
+ * Returns rating percentage and review counts
+ */
+export async function fetchSteamReviews(appId: number): Promise<SteamReviewData | null> {
+  const url = `https://store.steampowered.com/appreviews/${appId}?json=1&language=all&purchase_type=all`;
+
+  try {
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      console.warn(`Failed to fetch reviews for app ${appId}: ${response.status}`);
+      return null;
+    }
+
+    const data = (await response.json()) as SteamReviewsResponse;
+
+    if (!data.success || !data.query_summary) {
+      return null;
+    }
+
+    const summary = data.query_summary;
+
+    // Calculate percentage positive
+    const rating = summary.total_reviews > 0
+      ? Math.round((summary.total_positive / summary.total_reviews) * 100)
+      : 0;
+
+    return {
+      rating,
+      totalReviews: summary.total_reviews,
+      totalPositive: summary.total_positive,
+      totalNegative: summary.total_negative,
+      reviewScoreDesc: summary.review_score_desc,
+    };
+  } catch (error) {
+    console.warn(`Error fetching reviews for app ${appId}:`, error);
     return null;
   }
 }
