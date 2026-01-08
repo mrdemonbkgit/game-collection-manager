@@ -12,6 +12,7 @@ import gamesRouter from './routes/games.js';
 import syncRouter from './routes/sync.js';
 import logsRouter from './routes/logs.js';
 import collectionsRouter from './routes/collections.js';
+import { ensureCoversDir } from './services/localCoverService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -22,6 +23,14 @@ app.use(express.json());
 
 // Initialize database
 initDatabase();
+
+// Ensure covers directory exists and serve static files
+ensureCoversDir();
+const coversPath = path.resolve(process.cwd(), 'data', 'covers');
+app.use('/covers', express.static(coversPath, {
+  maxAge: '7d', // Cache covers for 7 days
+  immutable: true,
+}));
 
 // Routes
 app.use('/api/games', gamesRouter);

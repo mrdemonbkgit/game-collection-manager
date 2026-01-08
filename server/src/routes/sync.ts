@@ -36,6 +36,12 @@ import {
 } from '../services/steamGridDBService.js';
 import { getGamesWithHorizontalCovers } from '../db/repositories/gameRepository.js';
 import { getGamesWithoutCovers } from '../db/repositories/gameRepository.js';
+import {
+  downloadCovers,
+  getCacheStats,
+  clearCache,
+} from '../services/localCoverService.js';
+import { getAllGames } from '../db/repositories/gameRepository.js';
 
 const router = Router();
 
@@ -826,6 +832,144 @@ router.get('/covers/fix-horizontal/status', (_req, res) => {
     });
   } catch (error) {
     console.error('Error getting horizontal fix status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Local cover cache state
+let localCacheState: {
+  inProgress: boolean;
+  progress: { completed: number; total: number; current: string } | null;
+  result: {
+    total: number;
+    success: number;
+    failed: number;
+    skipped: number;
+    errors: Array<{ gameId: number; error: string }>;
+  } | null;
+  startTime: number | null;
+} = {
+  inProgress: false,
+  progress: null,
+  result: null,
+  startTime: null,
+};
+
+// POST /api/sync/covers/cache - Download covers to local cache
+router.post('/covers/cache', async (_req, res) => {
+  try {
+    if (localCacheState.inProgress) {
+      res.status(409).json({
+        success: false,
+        error: 'Cover caching already in progress',
+        progress: localCacheState.progress,
+      });
+      return;
+    }
+
+    // Get all games with covers
+    const { games } = getAllGames({ limit: 10000 });
+    const gamesWithCovers = games
+      .filter((g): g is typeof g & { cover_image_url: string } =>
+        !!g.cover_image_url && !g.cover_image_url.startsWith('/covers/'))
+      .map((g) => ({ id: g.id, coverUrl: g.cover_image_url }));
+
+    if (gamesWithCovers.length === 0) {
+      res.json({
+        success: true,
+        message: 'No remote covers to cache',
+        data: { total: 0, success: 0, failed: 0, skipped: 0 },
+      });
+      return;
+    }
+
+    localCacheState = {
+      inProgress: true,
+      progress: { completed: 0, total: gamesWithCovers.length, current: '' },
+      result: null,
+      startTime: Date.now(),
+    };
+
+    console.log(`Starting local cover cache for ${gamesWithCovers.length} games...`);
+
+    // Run in background
+    downloadCovers(gamesWithCovers, (completed, total, current) => {
+      localCacheState.progress = { completed, total, current };
+      if (completed % 100 === 0 || completed === total) {
+        console.log(`[Cover Cache] ${completed}/${total}`);
+      }
+    })
+      .then((result) => {
+        localCacheState.inProgress = false;
+        localCacheState.result = result;
+        console.log(
+          `Cover caching complete: ${result.success} success, ${result.failed} failed, ${result.skipped} skipped`
+        );
+      })
+      .catch((error) => {
+        localCacheState.inProgress = false;
+        console.error('Cover caching error:', error);
+      });
+
+    res.json({
+      success: true,
+      message: 'Cover caching started',
+      data: {
+        total: gamesWithCovers.length,
+        estimatedSeconds: Math.ceil(gamesWithCovers.length * 0.1), // ~0.1s per game
+      },
+    });
+  } catch (error) {
+    console.error('Error starting cover cache:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/covers/cache/status - Get local cache status
+router.get('/covers/cache/status', (_req, res) => {
+  try {
+    const elapsedMs = localCacheState.startTime
+      ? Date.now() - localCacheState.startTime
+      : 0;
+
+    const stats = getCacheStats();
+
+    res.json({
+      success: true,
+      data: {
+        inProgress: localCacheState.inProgress,
+        progress: localCacheState.progress,
+        result: localCacheState.result,
+        elapsedSeconds: Math.floor(elapsedMs / 1000),
+        cache: stats,
+      },
+    });
+  } catch (error) {
+    console.error('Error getting cover cache status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// DELETE /api/sync/covers/cache - Clear local cover cache
+router.delete('/covers/cache', (_req, res) => {
+  try {
+    const result = clearCache();
+    res.json({
+      success: true,
+      message: `Deleted ${result.deleted} cached covers`,
+      data: result,
+    });
+  } catch (error) {
+    console.error('Error clearing cover cache:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

@@ -11,6 +11,7 @@ import {
   updateGameCover,
   type GameQueryOptions,
 } from '../db/repositories/gameRepository.js';
+import { getLocalCoverUrl } from '../services/localCoverService.js';
 
 const router = Router();
 
@@ -99,13 +100,18 @@ router.get('/', (req, res) => {
     const platformsMap = getPlatformsForGames(gameIds);
 
     // Parse JSON fields and add platforms for response
-    const parsedGames = games.map((game) => ({
-      ...game,
-      screenshots: JSON.parse(game.screenshots),
-      genres: JSON.parse(game.genres),
-      tags: JSON.parse(game.tags),
-      platforms: platformsMap.get(game.id) || [],
-    }));
+    // Use local covers when available, fallback to remote URL
+    const parsedGames = games.map((game) => {
+      const localCover = getLocalCoverUrl(game.id);
+      return {
+        ...game,
+        cover_image_url: localCover || game.cover_image_url,
+        screenshots: JSON.parse(game.screenshots),
+        genres: JSON.parse(game.genres),
+        tags: JSON.parse(game.tags),
+        platforms: platformsMap.get(game.id) || [],
+      };
+    });
 
     res.json({
       success: true,

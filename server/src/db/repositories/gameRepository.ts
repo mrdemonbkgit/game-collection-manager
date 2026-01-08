@@ -233,7 +233,7 @@ export function deleteOrphanedGames(): number {
   `);
 
   const result = stmt.run();
-  return result.changes;
+  return Number(result.changes);
 }
 
 export function getGameById(id: number): GameWithPlatforms | null {

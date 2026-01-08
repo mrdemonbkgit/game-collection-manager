@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef } from 'react';
 import { FixedSizeList as List, ListChildComponentProps, ListOnItemsRenderedProps } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { Game } from '../types/game';
