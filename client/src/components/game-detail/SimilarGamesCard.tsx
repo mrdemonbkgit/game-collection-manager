@@ -75,7 +75,7 @@ export function SimilarGamesCard({ gameId }: SimilarGamesCardProps) {
             {games.map((game) => (
               <Link
                 key={game.id}
-                to={`/games/${game.slug}`}
+                to={`/game/${game.slug}`}
                 className="flex-shrink-0 w-32 group/card"
               >
                 <div className="relative aspect-[3/4] rounded overflow-hidden bg-steam-bg mb-2">
