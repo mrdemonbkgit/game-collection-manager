@@ -1,4 +1,5 @@
 import { Game } from '../../types/game';
+import PlatformBadge from '../PlatformBadge';
 
 interface CinematicHeroProps {
   game: Game;
@@ -25,17 +26,6 @@ export function CinematicHero({
   // Format playtime
   const playtimeHours = Math.floor(game.playtimeMinutes / 60);
   const playtimeDisplay = playtimeHours > 0 ? `${playtimeHours} hours` : 'Not played';
-
-  // Get platform badges
-  const platformBadges = game.platforms.map((p) => ({
-    type: p.platformType,
-    label: {
-      steam: 'Steam',
-      gamepass: 'Game Pass',
-      eaplay: 'EA Play',
-      ubisoftplus: 'Ubisoft+',
-    }[p.platformType],
-  }));
 
   return (
     <div className="relative min-h-[50vh] lg:min-h-[60vh] overflow-hidden">
@@ -78,23 +68,23 @@ export function CinematicHero({
         {/* Ownership & Playtime Bar */}
         <div className="flex flex-wrap items-center gap-4 mb-6">
           {/* Platform Badges */}
-          {platformBadges.length > 0 && (
+          {game.platforms.length > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-steam-text-muted text-sm">Owned on</span>
-              {platformBadges.map((badge) => (
-                <span
-                  key={badge.type}
-                  className="px-2 py-1 bg-steam-bg-card/80 rounded text-sm font-medium text-steam-text"
-                >
-                  {badge.label}
-                </span>
+              <span className="text-white/70 text-sm">Owned on</span>
+              {game.platforms.map((platform) => (
+                <PlatformBadge
+                  key={platform.id}
+                  platform={platform.platformType}
+                  size="md"
+                  showLabel={true}
+                />
               ))}
             </div>
           )}
 
           {/* Playtime */}
-          <div className="text-steam-text-muted text-sm">
-            <span className="text-steam-text">{playtimeDisplay}</span>
+          <div className="text-white/70 text-sm">
+            <span className="text-white">{playtimeDisplay}</span>
             {playtimeHours > 0 && ' played'}
           </div>
         </div>
