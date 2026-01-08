@@ -144,7 +144,7 @@ export default function CoverFixHistoryPage() {
                     {formatTimeAgo(item.lastTryTime)}
                   </p>
                   {item.triedUrls.length > 0 && (
-                    <details className="mt-2">
+                    <details className="mt-2" open>
                       <summary className="text-steam-accent text-xs cursor-pointer hover:underline">
                         {item.triedUrls.length} URL{item.triedUrls.length > 1 ? 's' : ''} tried
                       </summary>
