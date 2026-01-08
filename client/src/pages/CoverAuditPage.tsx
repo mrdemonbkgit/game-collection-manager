@@ -513,18 +513,32 @@ export default function CoverAuditPage() {
 
         {/* Fix Result */}
         {fixResult && !isFixing && (
-          <div className="bg-green-900/30 border border-green-700 rounded-lg p-4 mb-6">
+          <div className={`${fixResult.failed > 0 ? 'bg-yellow-900/30 border-yellow-700' : 'bg-green-900/30 border-green-700'} border rounded-lg p-4 mb-6`}>
             <div className="flex items-center justify-between">
-              <span className="text-green-400">
+              <span className={fixResult.failed > 0 ? 'text-yellow-400' : 'text-green-400'}>
                 Fix complete: {fixResult.success} success, {fixResult.failed} failed
               </span>
               <button
                 onClick={() => setFixResult(null)}
-                className="text-green-400 hover:text-green-300"
+                className={`${fixResult.failed > 0 ? 'text-yellow-400 hover:text-yellow-300' : 'text-green-400 hover:text-green-300'}`}
               >
                 Dismiss
               </button>
             </div>
+            {fixResult.failed > 0 && (
+              <div className="mt-3 pt-3 border-t border-yellow-700/50">
+                <p className="text-yellow-400 text-sm mb-2">Failed fixes:</p>
+                <ul className="space-y-1 max-h-40 overflow-y-auto">
+                  {fixResult.results
+                    .filter((r) => !r.success)
+                    .map((r) => (
+                      <li key={r.gameId} className="text-sm text-yellow-300/80">
+                        <span className="text-yellow-400">#{r.gameId}</span>: {r.error || 'Unknown error'}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
