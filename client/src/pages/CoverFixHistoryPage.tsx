@@ -143,6 +143,28 @@ export default function CoverFixHistoryPage() {
                   <p className="text-steam-text-muted text-xs mt-1">
                     {formatTimeAgo(item.lastTryTime)}
                   </p>
+                  {item.triedUrls.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="text-steam-accent text-xs cursor-pointer hover:underline">
+                        {item.triedUrls.length} URL{item.triedUrls.length > 1 ? 's' : ''} tried
+                      </summary>
+                      <ul className="mt-1 space-y-1">
+                        {item.triedUrls.map((url, i) => (
+                          <li key={i}>
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-xs text-steam-text-muted hover:text-steam-accent truncate block"
+                            >
+                              {url.split('/').pop()}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                 </div>
               </Link>
             ))}
