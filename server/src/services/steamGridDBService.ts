@@ -176,7 +176,7 @@ function normalizeTitle(title: string): string {
     .toLowerCase()
     .replace(/['']/g, "'")
     .replace(/[®™©]/g, '')
-    .replace(/[:\-–—]/g, ' ')
+    .replace(/[_:\-–—]/g, ' ')  // Convert underscores to spaces too
     .replace(/\s+/g, ' ')
     .replace(/[^a-z0-9\s']/g, '')
     .trim();
