@@ -2323,7 +2323,7 @@ router.get('/config', (_req, res) => {
         hasSteamKey: !!process.env.STEAM_API_KEY,
         hasSteamUserId: !!process.env.STEAM_USER_ID,
         hasSteamGridDBKey: !!process.env.STEAMGRIDDB_API_KEY,
-        hasIGDBKeys: !!(process.env.IGDB_CLIENT_ID && process.env.IGDB_CLIENT_SECRET),
+        hasIGDBKeys: !!(process.env.TWITCH_CLIENT_ID && process.env.TWITCH_CLIENT_SECRET),
       },
     });
   } catch (error) {
