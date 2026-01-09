@@ -81,6 +81,36 @@ import { getAllGames } from '../db/repositories/gameRepository.js';
 
 const router = Router();
 
+// Steam sync state (in-memory)
+interface SteamSyncProgress {
+  total: number;
+  current: number;
+  currentGame: string;
+}
+
+interface SteamSyncResult {
+  totalGames: number;
+  imported: number;
+  updated: number;
+  failed: number;
+}
+
+let steamSyncState: {
+  inProgress: boolean;
+  isQuick: boolean;
+  progress: SteamSyncProgress | null;
+  result: SteamSyncResult | null;
+  startTime: number | null;
+  error: string | null;
+} = {
+  inProgress: false,
+  isQuick: false,
+  progress: null,
+  result: null,
+  startTime: null,
+  error: null,
+};
+
 // Genre sync state (in-memory for simplicity)
 let genreSyncState: {
   inProgress: boolean;
@@ -94,8 +124,8 @@ let genreSyncState: {
   startTime: null,
 };
 
-// POST /api/sync/steam - Sync Steam library
-router.post('/steam', async (req, res) => {
+// POST /api/sync/steam - Full Steam library sync (background job)
+router.post('/steam', async (_req, res) => {
   try {
     const apiKey = process.env.STEAM_API_KEY;
     const steamId = process.env.STEAM_USER_ID;
@@ -108,29 +138,59 @@ router.post('/steam', async (req, res) => {
       return;
     }
 
-    const quick = req.query.quick === 'true';
+    // Check if already in progress
+    if (steamSyncState.inProgress) {
+      res.status(409).json({
+        success: false,
+        error: 'Steam sync already in progress',
+        progress: steamSyncState.progress,
+      });
+      return;
+    }
 
-    console.log(`Starting ${quick ? 'quick ' : ''}Steam sync for user ${steamId}...`);
+    // Initialize state
+    steamSyncState = {
+      inProgress: true,
+      isQuick: false,
+      progress: { total: 0, current: 0, currentGame: 'Starting...' },
+      result: null,
+      startTime: Date.now(),
+      error: null,
+    };
 
-    const result = quick
-      ? await quickSyncSteamLibrary(apiKey, steamId, (progress) => {
-          console.log(`[${progress.current}/${progress.total}] ${progress.currentGame}`);
-        })
-      : await syncSteamLibrary(apiKey, steamId, (progress) => {
-          console.log(`[${progress.current}/${progress.total}] ${progress.currentGame}`);
-        });
+    console.log(`Starting full Steam sync for user ${steamId}...`);
 
-    console.log('Steam sync complete:', result);
-
-    // Clear genre cache to pick up new genres
-    clearGenreCache();
-
+    // Return immediately, run sync in background
     res.json({
       success: true,
-      data: result,
+      message: 'Steam full sync started in background',
     });
+
+    // Run sync in background (don't await in the request handler)
+    syncSteamLibrary(apiKey, steamId, (progress) => {
+      steamSyncState.progress = {
+        total: progress.total,
+        current: progress.current,
+        currentGame: progress.currentGame,
+      };
+      if (progress.current % 100 === 0) {
+        console.log(`[Steam Sync] ${progress.current}/${progress.total} - ${progress.currentGame}`);
+      }
+    })
+      .then((result) => {
+        console.log('Steam sync complete:', result);
+        steamSyncState.inProgress = false;
+        steamSyncState.result = result;
+        clearGenreCache();
+      })
+      .catch((error) => {
+        console.error('Steam sync error:', error);
+        steamSyncState.inProgress = false;
+        steamSyncState.error = error instanceof Error ? error.message : 'Unknown error';
+      });
   } catch (error) {
     console.error('Steam sync error:', error);
+    steamSyncState.inProgress = false;
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -138,7 +198,34 @@ router.post('/steam', async (req, res) => {
   }
 });
 
-// POST /api/sync/steam/quick - Quick sync (basic info only, faster)
+// GET /api/sync/steam/status - Get Steam sync status
+router.get('/steam/status', (_req, res) => {
+  try {
+    const elapsedMs = steamSyncState.startTime
+      ? Date.now() - steamSyncState.startTime
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        inProgress: steamSyncState.inProgress,
+        isQuick: steamSyncState.isQuick,
+        progress: steamSyncState.progress,
+        result: steamSyncState.result,
+        error: steamSyncState.error,
+        elapsedSeconds: Math.floor(elapsedMs / 1000),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting steam sync status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// POST /api/sync/steam/quick - Quick sync (basic info only, faster, background)
 router.post('/steam/quick', async (_req, res) => {
   try {
     const apiKey = process.env.STEAM_API_KEY;
@@ -152,23 +239,56 @@ router.post('/steam/quick', async (_req, res) => {
       return;
     }
 
+    // Check if already in progress
+    if (steamSyncState.inProgress) {
+      res.status(409).json({
+        success: false,
+        error: 'Steam sync already in progress',
+        progress: steamSyncState.progress,
+      });
+      return;
+    }
+
+    // Initialize state
+    steamSyncState = {
+      inProgress: true,
+      isQuick: true,
+      progress: { total: 0, current: 0, currentGame: 'Starting...' },
+      result: null,
+      startTime: Date.now(),
+      error: null,
+    };
+
     console.log(`Starting quick Steam sync for user ${steamId}...`);
 
-    const result = await quickSyncSteamLibrary(apiKey, steamId, (progress) => {
-      console.log(`[${progress.current}/${progress.total}] ${progress.currentGame}`);
-    });
-
-    console.log('Quick Steam sync complete:', result);
-
-    // Clear genre cache to pick up new genres
-    clearGenreCache();
-
+    // Return immediately
     res.json({
       success: true,
-      data: result,
+      message: 'Steam quick sync started in background',
     });
+
+    // Run in background
+    quickSyncSteamLibrary(apiKey, steamId, (progress) => {
+      steamSyncState.progress = {
+        total: progress.total,
+        current: progress.current,
+        currentGame: progress.currentGame,
+      };
+    })
+      .then((result) => {
+        console.log('Quick Steam sync complete:', result);
+        steamSyncState.inProgress = false;
+        steamSyncState.result = result;
+        clearGenreCache();
+      })
+      .catch((error) => {
+        console.error('Quick Steam sync error:', error);
+        steamSyncState.inProgress = false;
+        steamSyncState.error = error instanceof Error ? error.message : 'Unknown error';
+      });
   } catch (error) {
     console.error('Steam sync error:', error);
+    steamSyncState.inProgress = false;
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -2176,6 +2296,14 @@ router.get('/all-status', (_req, res) => {
     res.json({
       success: true,
       data: {
+        steam: {
+          inProgress: steamSyncState.inProgress,
+          isQuick: steamSyncState.isQuick,
+          progress: steamSyncState.progress,
+          result: steamSyncState.result,
+          error: steamSyncState.error,
+          elapsedSeconds: getElapsedSeconds(steamSyncState.startTime),
+        },
         genres: {
           inProgress: genreSyncState.inProgress,
           progress: genreSyncState.progress,
@@ -2337,6 +2465,7 @@ router.get('/config', (_req, res) => {
 
 // Abort flags for each sync operation
 const abortFlags: Record<string, boolean> = {
+  steam: false,
   genres: false,
   ratings: false,
   covers: false,

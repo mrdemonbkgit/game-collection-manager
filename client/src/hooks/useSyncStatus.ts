@@ -21,8 +21,15 @@ export interface SyncOperationStatus {
   elapsedSeconds: number;
 }
 
+// Steam sync status (extended)
+export interface SteamSyncStatus extends SyncOperationStatus {
+  isQuick?: boolean;
+  error?: string | null;
+}
+
 // All sync operations status
 export interface AllSyncStatus {
+  steam: SteamSyncStatus;
   genres: SyncOperationStatus;
   ratings: SyncOperationStatus;
   covers: SyncOperationStatus;
@@ -79,6 +86,7 @@ const DEFAULT_STATUS: SyncOperationStatus = {
 };
 
 const INITIAL_STATUS: AllSyncStatus = {
+  steam: { ...DEFAULT_STATUS, isQuick: false, error: null },
   genres: DEFAULT_STATUS,
   ratings: DEFAULT_STATUS,
   covers: DEFAULT_STATUS,

@@ -14,6 +14,7 @@ This is a **personal PC game collection manager** for a user with 2420+ Steam ga
 - AI for "what to play next", discovery, and decision making
 - Self-hosted on home server
 - Intermediate developer, prefers autonomous work with milestone check-ins
+- Do NOT add "Co-Authored-By: Claude" lines to git commit messages
 
 ---
 

@@ -14,13 +14,47 @@ import {
   triggerScreenshotSync,
   abortSync,
   type SyncConfig,
+  type AllSyncStatus,
 } from '../hooks/useSyncStatus';
+import { fetchApi } from '../services/api';
 import SyncStatusCard, {
   type SyncOperationConfig,
 } from '../components/sync/SyncStatusCard';
 
+// Helper to wait for a specific sync operation to complete
+async function waitForSyncCompletion(
+  operationId: string,
+  pollInterval = 2000,
+  maxWaitMs = 10 * 60 * 60 * 1000 // 10 hours max
+): Promise<void> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitMs) {
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+    try {
+      const res = await fetchApi<{ success: boolean; data: AllSyncStatus }>('/sync/all-status');
+      const opStatus = res.data[operationId as keyof AllSyncStatus];
+
+      if (!opStatus?.inProgress) {
+        return; // Sync completed
+      }
+    } catch {
+      // Continue polling even on error
+    }
+  }
+
+  throw new Error(`Timeout waiting for ${operationId} to complete`);
+}
+
 // Sync operation definitions
 const SYNC_OPERATIONS: SyncOperationConfig[] = [
+  {
+    id: 'steam',
+    name: 'Steam Library',
+    description: 'Full metadata sync from Steam',
+    requiredKeys: ['steam'],
+  },
   {
     id: 'genres',
     name: 'Genres & Tags',
@@ -71,6 +105,7 @@ const SYNC_OPERATIONS: SyncOperationConfig[] = [
 
 // Trigger functions map
 const TRIGGER_FUNCTIONS: Record<string, () => Promise<void>> = {
+  steam: triggerSteamFullSync,
   genres: triggerGenreSync,
   ratings: triggerRatingSync,
   covers: triggerCoverSync,
@@ -151,26 +186,36 @@ export default function SyncDashboardPage() {
     [refresh]
   );
 
-  // Initial Sync - runs all syncs in order
+  // Current step for initial sync progress display
+  const [currentSyncStep, setCurrentSyncStep] = useState<string | null>(null);
+
+  // Initial Sync - runs all syncs in order, waiting for each to complete
   const handleInitialSync = useCallback(async () => {
     setInitialSyncRunning(true);
     setActionError(null);
+    setCurrentSyncStep(null);
 
-    // Order: Quick Steam -> Full Steam -> Covers -> Cover Cache -> Assets -> Ratings -> Genres -> IGDB -> SteamGridDB -> Screenshots (optional)
-    const order = [
-      { fn: triggerSteamQuickSync, name: 'Steam Quick Sync' },
-      { fn: triggerSteamFullSync, name: 'Steam Full Sync' },
-      { fn: triggerCoverSync, name: 'Cover URLs' },
-      { fn: triggerCoverCacheSync, name: 'Cover Cache' },
-      { fn: triggerAssetSync, name: 'Heroes & Logos', needsSteamGrid: true },
-      { fn: triggerRatingSync, name: 'Ratings' },
-      { fn: triggerGenreSync, name: 'Genres' },
-      { fn: triggerIGDBSync, name: 'IGDB', needsIGDB: true },
-      { fn: triggerSteamGridDBSync, name: 'SteamGridDB', needsSteamGrid: true },
+    // Order with statusKey for polling
+    const order: Array<{
+      fn: () => Promise<void>;
+      name: string;
+      statusKey: keyof AllSyncStatus;
+      needsSteamGrid?: boolean;
+      needsIGDB?: boolean;
+    }> = [
+      { fn: triggerSteamQuickSync, name: 'Steam Quick Sync', statusKey: 'steam' },
+      { fn: triggerSteamFullSync, name: 'Steam Full Sync', statusKey: 'steam' },
+      { fn: triggerCoverSync, name: 'Cover URLs', statusKey: 'covers' },
+      { fn: triggerCoverCacheSync, name: 'Cover Cache', statusKey: 'coverCache' },
+      { fn: triggerAssetSync, name: 'Heroes & Logos', statusKey: 'assets', needsSteamGrid: true },
+      { fn: triggerRatingSync, name: 'Ratings', statusKey: 'ratings' },
+      { fn: triggerGenreSync, name: 'Genres', statusKey: 'genres' },
+      { fn: triggerIGDBSync, name: 'IGDB', statusKey: 'igdb', needsIGDB: true },
+      { fn: triggerSteamGridDBSync, name: 'SteamGridDB', statusKey: 'steamgrid', needsSteamGrid: true },
     ];
 
     if (includeScreenshots) {
-      order.push({ fn: triggerScreenshotSync, name: 'Screenshots' });
+      order.push({ fn: triggerScreenshotSync, name: 'Screenshots', statusKey: 'screenshots' });
     }
 
     try {
@@ -180,17 +225,30 @@ export default function SyncDashboardPage() {
         if (step.needsIGDB && config && !config.hasIGDBKeys) continue;
 
         console.log(`[Initial Sync] Starting: ${step.name}`);
+        setCurrentSyncStep(step.name);
+
+        // Trigger the sync (returns immediately for background jobs)
         await step.fn();
-        // Brief pause between operations
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        // Wait for the sync to complete by polling
+        await waitForSyncCompletion(step.statusKey);
+
+        console.log(`[Initial Sync] Completed: ${step.name}`);
         refresh();
+
+        // Brief pause between operations
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
+
+      setCurrentSyncStep(null);
+      console.log('[Initial Sync] All syncs completed');
     } catch (err) {
       setActionError(
         `Initial sync failed: ${err instanceof Error ? err.message : 'Unknown error'}`
       );
     } finally {
       setInitialSyncRunning(false);
+      setCurrentSyncStep(null);
     }
   }, [config, includeScreenshots, refresh]);
 
@@ -343,7 +401,11 @@ export default function SyncDashboardPage() {
                 : 'bg-steam-accent text-white hover:bg-steam-accent/80'
             }`}
           >
-            {initialSyncRunning ? 'Running Initial Sync...' : 'Initial Sync'}
+            {initialSyncRunning
+              ? currentSyncStep
+                ? `Running: ${currentSyncStep}`
+                : 'Starting Initial Sync...'
+              : 'Initial Sync'}
           </button>
           <button
             onClick={handleIncrementalSync}
