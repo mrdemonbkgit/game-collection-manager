@@ -315,6 +315,23 @@ export default function AdminPage() {
           )}
         </section>
 
+        {/* Sync Dashboard Section */}
+        <section className="mt-8 bg-steam-bg-card rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-steam-text mb-4">
+            Sync Dashboard
+          </h2>
+          <p className="text-steam-text-muted mb-4">
+            Manage all sync operations in one place. Run initial sync, incremental sync,
+            or individual sync operations with real-time progress tracking.
+          </p>
+          <Link
+            to="/admin/sync"
+            className="inline-block px-4 py-2 bg-steam-accent text-white rounded hover:bg-steam-accent/80 transition-colors"
+          >
+            Open Sync Dashboard
+          </Link>
+        </section>
+
         {/* Cover Audit Section */}
         <section className="mt-8 bg-steam-bg-card rounded-lg p-6">
           <h2 className="text-xl font-semibold text-steam-text mb-4">

@@ -4,6 +4,7 @@ import GameDetailPage from './pages/GameDetailPage';
 import AssetFixPage from './pages/AssetFixPage';
 import AdminPage from './pages/AdminPage';
 import CoverFixPage from './pages/CoverFixPage';
+import SyncDashboardPage from './pages/SyncDashboardPage';
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Route path="/game/:slug/fix-assets" element={<AssetFixPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/covers" element={<CoverFixPage />} />
+        <Route path="/admin/sync" element={<SyncDashboardPage />} />
       </Routes>
     </div>
   );

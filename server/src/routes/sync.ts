@@ -15,6 +15,8 @@ import {
   getIGDBSyncStats,
   getGamesWithScreenshots,
   getScreenshotSyncStats,
+  getGamesWithoutCovers as getGamesWithoutCoversRepo,
+  getGamesWithoutSteamMetadata,
 } from '../db/repositories/gameRepository.js';
 import {
   getGameBySteamId,
@@ -2158,5 +2160,233 @@ router.get('/screenshots/status', (_req, res) => {
     });
   }
 });
+
+// ============================================================================
+// UNIFIED STATUS & CONFIG ENDPOINTS (Sync Dashboard)
+// ============================================================================
+
+// Helper to get elapsed seconds
+function getElapsedSeconds(startTime: number | null): number {
+  return startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+}
+
+// GET /api/sync/all-status - Aggregated status of all sync operations
+router.get('/all-status', (_req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: {
+        genres: {
+          inProgress: genreSyncState.inProgress,
+          progress: genreSyncState.progress,
+          result: genreSyncState.result,
+          elapsedSeconds: getElapsedSeconds(genreSyncState.startTime),
+        },
+        ratings: {
+          inProgress: ratingsSyncState.inProgress,
+          progress: ratingsSyncState.progress,
+          result: ratingsSyncState.result,
+          elapsedSeconds: getElapsedSeconds(ratingsSyncState.startTime),
+        },
+        covers: {
+          inProgress: coverSyncState.inProgress,
+          progress: coverSyncState.progress,
+          result: coverSyncState.result,
+          elapsedSeconds: getElapsedSeconds(coverSyncState.startTime),
+        },
+        coverCache: {
+          inProgress: localCacheState.inProgress,
+          progress: localCacheState.progress,
+          result: localCacheState.result,
+          elapsedSeconds: getElapsedSeconds(localCacheState.startTime),
+        },
+        assets: {
+          inProgress: assetPredownloadState.inProgress,
+          progress: assetPredownloadState.progress,
+          result: assetPredownloadState.result,
+          elapsedSeconds: getElapsedSeconds(assetPredownloadState.startTime),
+        },
+        igdb: {
+          inProgress: igdbSyncState.inProgress,
+          progress: igdbSyncState.progress,
+          result: igdbSyncState.result,
+          elapsedSeconds: getElapsedSeconds(igdbSyncState.startTime),
+        },
+        steamgrid: {
+          inProgress: steamgridEnrichState.inProgress,
+          progress: steamgridEnrichState.progress,
+          result: steamgridEnrichState.result,
+          elapsedSeconds: getElapsedSeconds(steamgridEnrichState.startTime),
+        },
+        screenshots: {
+          inProgress: screenshotSyncState.inProgress,
+          progress: screenshotSyncState.progress,
+          result: screenshotSyncState.result,
+          elapsedSeconds: getElapsedSeconds(screenshotSyncState.startTime),
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error getting all sync status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/db-stats - Comprehensive database asset statistics
+router.get('/db-stats', (_req, res) => {
+  try {
+    const totalGames = getGameCount();
+    const gamesWithoutGenres = getGamesWithoutGenres().length;
+    const gamesWithoutRatings = getGamesWithoutRatings().length;
+    const gamesWithoutCovers = getGamesWithoutCoversRepo().length;
+    const gamesWithoutSteamMetadata = getGamesWithoutSteamMetadata().length;
+    const igdbStats = getIGDBSyncStats();
+    const steamgridStats = getSteamGridDBSyncStats();
+    const screenshotStats = getScreenshotSyncStats();
+    const coverCacheStats = getCacheStats();
+    const assetCacheStats = getAssetCacheStats();
+
+    res.json({
+      success: true,
+      data: {
+        totalGames,
+        library: {
+          total: totalGames,
+          withSteamMetadata: totalGames - gamesWithoutSteamMetadata,
+          withoutSteamMetadata: gamesWithoutSteamMetadata,
+          percentage: totalGames > 0 ? Math.round(((totalGames - gamesWithoutSteamMetadata) / totalGames) * 100) : 0,
+        },
+        genres: {
+          total: totalGames,
+          withGenres: totalGames - gamesWithoutGenres,
+          withoutGenres: gamesWithoutGenres,
+          percentage: totalGames > 0 ? Math.round(((totalGames - gamesWithoutGenres) / totalGames) * 100) : 0,
+        },
+        ratings: {
+          total: totalGames,
+          withRatings: totalGames - gamesWithoutRatings,
+          withoutRatings: gamesWithoutRatings,
+          percentage: totalGames > 0 ? Math.round(((totalGames - gamesWithoutRatings) / totalGames) * 100) : 0,
+        },
+        covers: {
+          total: totalGames,
+          withCovers: totalGames - gamesWithoutCovers,
+          withoutCovers: gamesWithoutCovers,
+          percentage: totalGames > 0 ? Math.round(((totalGames - gamesWithoutCovers) / totalGames) * 100) : 0,
+          cached: coverCacheStats.totalFiles,
+          cachedPercentage: totalGames > 0 ? Math.round((coverCacheStats.totalFiles / totalGames) * 100) : 0,
+        },
+        igdb: {
+          total: igdbStats.total,
+          withIGDB: igdbStats.withIGDB,
+          withoutIGDB: igdbStats.withoutIGDB,
+          percentage: igdbStats.total > 0 ? Math.round((igdbStats.withIGDB / igdbStats.total) * 100) : 0,
+        },
+        steamgrid: {
+          total: steamgridStats.total,
+          enriched: steamgridStats.enriched,
+          notEnriched: steamgridStats.notEnriched,
+          percentage: steamgridStats.total > 0 ? Math.round((steamgridStats.enriched / steamgridStats.total) * 100) : 0,
+        },
+        assets: {
+          heroes: assetCacheStats.heroes.count,
+          logos: assetCacheStats.logos.count,
+          icons: assetCacheStats.icons.count,
+          heroPercentage: totalGames > 0 ? Math.round((assetCacheStats.heroes.count / totalGames) * 100) : 0,
+          logoPercentage: totalGames > 0 ? Math.round((assetCacheStats.logos.count / totalGames) * 100) : 0,
+        },
+        screenshots: {
+          gamesWithScreenshots: screenshotStats.withScreenshots,
+          totalScreenshots: screenshotStats.totalScreenshots,
+          percentage: screenshotStats.total > 0 ? Math.round((screenshotStats.withScreenshots / screenshotStats.total) * 100) : 0,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error getting db stats:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/config - API key availability status
+router.get('/config', (_req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: {
+        hasSteamKey: !!process.env.STEAM_API_KEY,
+        hasSteamUserId: !!process.env.STEAM_USER_ID,
+        hasSteamGridDBKey: !!process.env.STEAMGRIDDB_API_KEY,
+        hasIGDBKeys: !!(process.env.IGDB_CLIENT_ID && process.env.IGDB_CLIENT_SECRET),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting sync config:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Abort flags for each sync operation
+const abortFlags: Record<string, boolean> = {
+  genres: false,
+  ratings: false,
+  covers: false,
+  coverCache: false,
+  assets: false,
+  igdb: false,
+  steamgrid: false,
+  screenshots: false,
+};
+
+// Check if abort was requested for an operation
+export function isAbortRequested(operation: string): boolean {
+  return abortFlags[operation] ?? false;
+}
+
+// POST /api/sync/abort/:operation - Abort a running sync operation
+router.post('/abort/:operation', (req, res) => {
+  try {
+    const { operation } = req.params;
+
+    if (!(operation in abortFlags)) {
+      res.status(400).json({
+        success: false,
+        error: `Unknown operation: ${operation}. Valid operations: ${Object.keys(abortFlags).join(', ')}`,
+      });
+      return;
+    }
+
+    // Set the abort flag
+    abortFlags[operation] = true;
+    console.log(`[Sync] Abort requested for: ${operation}`);
+
+    res.json({
+      success: true,
+      message: `Abort requested for ${operation}. Operation will stop shortly.`,
+    });
+  } catch (error) {
+    console.error('Error aborting sync:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Reset abort flag (called when starting a new sync)
+export function resetAbortFlag(operation: string): void {
+  if (operation in abortFlags) {
+    abortFlags[operation] = false;
+  }
+}
 
 export default router;

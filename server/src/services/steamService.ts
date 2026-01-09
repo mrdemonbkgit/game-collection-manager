@@ -2,6 +2,8 @@ import {
   upsertGameBySteamAppId,
   addGamePlatform,
   getUniqueSlug,
+  updateGamePlaytime,
+  gameExistsBySteamAppId,
   type CreateGameInput,
 } from '../db/repositories/gameRepository.js';
 
@@ -341,36 +343,44 @@ export async function syncSteamLibrary(
         coverImageUrl: `https://steamcdn-a.akamaihd.net/steam/apps/${game.appid}/header.jpg`,
       };
 
-      // Optionally fetch detailed info (slower but more complete)
-      if (fetchDetails) {
-        await delay(RATE_LIMIT_DELAY); // Rate limit
-        const details = await fetchSteamAppDetails(game.appid);
+      // For quick sync (fetchDetails=false), only update playtime for existing games
+      // This prevents overwriting detailed metadata with null values
+      if (!fetchDetails && gameExistsBySteamAppId(game.appid)) {
+        // Game exists - just update playtime, preserve all other metadata
+        updateGamePlaytime(game.appid, game.playtime_forever);
+        result.updated++;
+      } else {
+        // Full sync or new game - fetch details if requested
+        if (fetchDetails) {
+          await delay(RATE_LIMIT_DELAY); // Rate limit
+          const details = await fetchSteamAppDetails(game.appid);
 
-        if (details) {
-          gameInput = {
-            ...gameInput,
-            description: details.detailed_description || details.about_the_game,
-            shortDescription: details.short_description,
-            developer: details.developers?.join(', ') || null,
-            publisher: details.publishers?.join(', ') || null,
-            releaseDate: details.release_date?.date || null,
-            genres: details.genres?.map((g) => g.description) || [],
-            tags: details.categories?.map((c) => c.description) || [],
-            metacriticScore: details.metacritic?.score || null,
-            metacriticUrl: details.metacritic?.url || null,
-            screenshots: details.screenshots?.map((s) => s.path_full) || [],
-            coverImageUrl: details.header_image || gameInput.coverImageUrl,
-          };
+          if (details) {
+            gameInput = {
+              ...gameInput,
+              description: details.detailed_description || details.about_the_game,
+              shortDescription: details.short_description,
+              developer: details.developers?.join(', ') || null,
+              publisher: details.publishers?.join(', ') || null,
+              releaseDate: details.release_date?.date || null,
+              genres: details.genres?.map((g) => g.description) || [],
+              tags: details.categories?.map((c) => c.description) || [],
+              metacriticScore: details.metacritic?.score || null,
+              metacriticUrl: details.metacritic?.url || null,
+              screenshots: details.screenshots?.map((s) => s.path_full) || [],
+              coverImageUrl: details.header_image || gameInput.coverImageUrl,
+            };
+          }
         }
+
+        // Upsert game (new game or full sync)
+        const gameId = upsertGameBySteamAppId(gameInput);
+
+        // Add platform record
+        addGamePlatform(gameId, 'steam', game.appid.toString(), true);
+
+        result.imported++;
       }
-
-      // Upsert game
-      const gameId = upsertGameBySteamAppId(gameInput);
-
-      // Add platform record
-      addGamePlatform(gameId, 'steam', game.appid.toString(), true);
-
-      result.imported++;
     } catch (error) {
       result.failed++;
       result.errors.push({

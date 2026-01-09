@@ -180,6 +180,34 @@ export function upsertGameBySteamAppId(input: CreateGameInput): number {
   }
 }
 
+/**
+ * Update ONLY playtime for an existing game by Steam App ID.
+ * This is safe for incremental sync - it won't overwrite any metadata.
+ * Returns true if the game was updated, false if the game doesn't exist.
+ */
+export function updateGamePlaytime(steamAppId: number, playtimeMinutes: number): boolean {
+  const db = getDatabase();
+
+  const stmt = db.prepare(`
+    UPDATE games SET
+      playtime_minutes = ?,
+      updated_at = datetime('now')
+    WHERE steam_app_id = ?
+  `);
+
+  const result = stmt.run(playtimeMinutes, steamAppId);
+  return result.changes > 0;
+}
+
+/**
+ * Check if a game exists by Steam App ID.
+ */
+export function gameExistsBySteamAppId(steamAppId: number): boolean {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT 1 FROM games WHERE steam_app_id = ?');
+  return !!stmt.get(steamAppId);
+}
+
 export function addGamePlatform(
   gameId: number,
   platformType: string,
