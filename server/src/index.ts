@@ -33,6 +33,7 @@ const coversPath = path.resolve(process.cwd(), 'data', 'covers');
 const heroesPath = path.resolve(process.cwd(), 'data', 'heroes');
 const logosPath = path.resolve(process.cwd(), 'data', 'logos');
 const iconsPath = path.resolve(process.cwd(), 'data', 'icons');
+const screenshotsPath = path.resolve(process.cwd(), 'data', 'screenshots');
 
 app.use('/covers', express.static(coversPath, {
   maxAge: '7d', // Cache covers for 7 days
@@ -51,6 +52,11 @@ app.use('/logos', express.static(logosPath, {
 
 app.use('/icons', express.static(iconsPath, {
   maxAge: '7d', // Cache icons for 7 days
+  immutable: true,
+}));
+
+app.use('/screenshots', express.static(screenshotsPath, {
+  maxAge: '7d', // Cache screenshots for 7 days
   immutable: true,
 }));
 

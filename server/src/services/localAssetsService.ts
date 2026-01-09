@@ -16,13 +16,14 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 
-export type AssetType = 'hero' | 'logo' | 'icon';
+export type AssetType = 'hero' | 'logo' | 'icon' | 'screenshot';
 
 // Asset directories relative to project root
 const ASSETS_BASE_DIR = path.resolve(process.cwd(), 'data');
 const HEROES_DIR = path.join(ASSETS_BASE_DIR, 'heroes');
 const LOGOS_DIR = path.join(ASSETS_BASE_DIR, 'logos');
 const ICONS_DIR = path.join(ASSETS_BASE_DIR, 'icons');
+const SCREENSHOTS_DIR = path.join(ASSETS_BASE_DIR, 'screenshots');
 
 // SSRF Protection Configuration
 const ALLOWED_DOMAINS = [
@@ -50,6 +51,8 @@ function getAssetDir(type: AssetType): string {
       return LOGOS_DIR;
     case 'icon':
       return ICONS_DIR;
+    case 'screenshot':
+      return SCREENSHOTS_DIR;
   }
 }
 
@@ -57,7 +60,7 @@ function getAssetDir(type: AssetType): string {
  * Ensure asset directories exist
  */
 export function ensureAssetDirs(): void {
-  for (const dir of [HEROES_DIR, LOGOS_DIR, ICONS_DIR]) {
+  for (const dir of [HEROES_DIR, LOGOS_DIR, ICONS_DIR, SCREENSHOTS_DIR]) {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
       console.log(`Created asset directory: ${dir}`);
@@ -84,8 +87,13 @@ export function hasLocalAsset(gameId: number, type: AssetType): string | null {
 /**
  * Get the local asset URL for a game (relative to server route)
  * Includes cache-busting query param based on file modification time
+ * Note: For screenshots, use getLocalScreenshotUrls() instead
  */
 export function getLocalAssetUrl(gameId: number, type: AssetType): string | null {
+  if (type === 'screenshot') {
+    // Screenshots are handled differently - use getLocalScreenshotUrls
+    return null;
+  }
   const localPath = hasLocalAsset(gameId, type);
   if (localPath) {
     const filename = path.basename(localPath);
@@ -344,6 +352,7 @@ export function getAssetCacheStats(): {
   heroes: { count: number; sizeMB: string };
   logos: { count: number; sizeMB: string };
   icons: { count: number; sizeMB: string };
+  screenshots: { count: number; sizeMB: string; games: number };
   total: { count: number; sizeMB: string };
 } {
   ensureAssetDirs();
@@ -361,21 +370,226 @@ export function getAssetCacheStats(): {
     return { count: files.length, sizeMB: (totalSize / 1024 / 1024).toFixed(2) };
   };
 
+  // Screenshots are in subdirectories (one per game)
+  const getScreenshotStats = () => {
+    let totalCount = 0;
+    let totalSize = 0;
+    let gamesWithScreenshots = 0;
+
+    if (fs.existsSync(SCREENSHOTS_DIR)) {
+      const gameDirs = fs.readdirSync(SCREENSHOTS_DIR);
+      for (const gameDir of gameDirs) {
+        const gameDirPath = path.join(SCREENSHOTS_DIR, gameDir);
+        const stat = fs.statSync(gameDirPath);
+        if (stat.isDirectory()) {
+          gamesWithScreenshots++;
+          const files = fs.readdirSync(gameDirPath);
+          for (const file of files) {
+            const filePath = path.join(gameDirPath, file);
+            const fileStat = fs.statSync(filePath);
+            if (fileStat.isFile()) {
+              totalCount++;
+              totalSize += fileStat.size;
+            }
+          }
+        }
+      }
+    }
+    return { count: totalCount, sizeMB: (totalSize / 1024 / 1024).toFixed(2), games: gamesWithScreenshots };
+  };
+
   const heroStats = getStats(HEROES_DIR);
   const logoStats = getStats(LOGOS_DIR);
   const iconStats = getStats(ICONS_DIR);
+  const screenshotStats = getScreenshotStats();
 
   return {
     heroes: heroStats,
     logos: logoStats,
     icons: iconStats,
+    screenshots: screenshotStats,
     total: {
-      count: heroStats.count + logoStats.count + iconStats.count,
+      count: heroStats.count + logoStats.count + iconStats.count + screenshotStats.count,
       sizeMB: (
         parseFloat(heroStats.sizeMB) +
         parseFloat(logoStats.sizeMB) +
-        parseFloat(iconStats.sizeMB)
+        parseFloat(iconStats.sizeMB) +
+        parseFloat(screenshotStats.sizeMB)
       ).toFixed(2),
     },
   };
+}
+
+// =====================
+// Screenshot Functions
+// =====================
+
+/**
+ * Get screenshot directory for a game
+ */
+function getGameScreenshotDir(gameId: number): string {
+  return path.join(SCREENSHOTS_DIR, String(gameId));
+}
+
+/**
+ * Check if local screenshots exist for a game
+ */
+export function hasLocalScreenshots(gameId: number): boolean {
+  const dir = getGameScreenshotDir(gameId);
+  if (!fs.existsSync(dir)) return false;
+  const files = fs.readdirSync(dir);
+  return files.length > 0;
+}
+
+/**
+ * Get local screenshot URLs for a game
+ */
+export function getLocalScreenshotUrls(gameId: number): string[] {
+  const dir = getGameScreenshotDir(gameId);
+  if (!fs.existsSync(dir)) return [];
+
+  const files = fs.readdirSync(dir)
+    .filter(f => /\.(jpg|jpeg|png|webp|gif)$/i.test(f))
+    .sort((a, b) => {
+      // Sort by numeric index in filename
+      const numA = parseInt(a.split('.')[0], 10);
+      const numB = parseInt(b.split('.')[0], 10);
+      return numA - numB;
+    });
+
+  return files.map(file => {
+    const filePath = path.join(dir, file);
+    const mtime = fs.statSync(filePath).mtimeMs;
+    return `/screenshots/${gameId}/${file}?v=${Math.floor(mtime)}`;
+  });
+}
+
+/**
+ * Download a single screenshot for a game
+ */
+async function downloadSingleScreenshot(
+  gameId: number,
+  remoteUrl: string,
+  index: number
+): Promise<{ success: boolean; localUrl?: string; error?: string }> {
+  const dir = getGameScreenshotDir(gameId);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  // SSRF Protection: Validate URL before fetching
+  const validation = validateUrl(remoteUrl);
+  if (!validation.valid) {
+    return { success: false, error: `URL validation failed: ${validation.error}` };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+    const response = await fetch(remoteUrl, {
+      headers: { 'User-Agent': 'GameCollection/1.0' },
+      signal: controller.signal,
+      redirect: 'error',
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+
+    // Validate content type
+    const contentType = response.headers.get('content-type') || '';
+    const isValidContentType = ALLOWED_CONTENT_TYPES.some(ct => contentType.includes(ct));
+    if (!isValidContentType) {
+      return { success: false, error: `Invalid content type: ${contentType}` };
+    }
+
+    // Check content length
+    const contentLength = response.headers.get('content-length');
+    if (contentLength && parseInt(contentLength, 10) > MAX_FILE_SIZE) {
+      return { success: false, error: `File too large: ${contentLength} bytes` };
+    }
+
+    // Determine extension
+    let ext = '.jpg';
+    if (contentType.includes('png')) ext = '.png';
+    else if (contentType.includes('webp')) ext = '.webp';
+    else if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = '.jpg';
+    else if (contentType.includes('gif')) ext = '.gif';
+
+    const localPath = path.join(dir, `${index}${ext}`);
+
+    // Stream to disk
+    const body = response.body;
+    if (!body) {
+      return { success: false, error: 'No response body' };
+    }
+
+    let bytesWritten = 0;
+    const writeStream = fs.createWriteStream(localPath);
+    const readable = Readable.fromWeb(body as never);
+    readable.on('data', (chunk: Buffer) => {
+      bytesWritten += chunk.length;
+      if (bytesWritten > MAX_FILE_SIZE) {
+        readable.destroy(new Error('File exceeds maximum size'));
+      }
+    });
+
+    await pipeline(readable, writeStream);
+
+    const mtime = fs.statSync(localPath).mtimeMs;
+    const localUrl = `/screenshots/${gameId}/${index}${ext}?v=${Math.floor(mtime)}`;
+
+    return { success: true, localUrl };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Download all screenshots for a game
+ */
+export async function downloadGameScreenshots(
+  gameId: number,
+  remoteUrls: string[]
+): Promise<{ downloaded: number; failed: number; localUrls: string[] }> {
+  ensureAssetDirs();
+
+  // Skip if already downloaded
+  if (hasLocalScreenshots(gameId)) {
+    return { downloaded: 0, failed: 0, localUrls: getLocalScreenshotUrls(gameId) };
+  }
+
+  let downloaded = 0;
+  let failed = 0;
+  const localUrls: string[] = [];
+
+  for (let i = 0; i < remoteUrls.length; i++) {
+    const result = await downloadSingleScreenshot(gameId, remoteUrls[i], i);
+    if (result.success && result.localUrl) {
+      downloaded++;
+      localUrls.push(result.localUrl);
+    } else {
+      failed++;
+    }
+  }
+
+  return { downloaded, failed, localUrls };
+}
+
+/**
+ * Clear screenshots for a game
+ */
+export function clearGameScreenshots(gameId: number): boolean {
+  const dir = getGameScreenshotDir(gameId);
+  if (fs.existsSync(dir)) {
+    fs.rmSync(dir, { recursive: true });
+    return true;
+  }
+  return false;
 }

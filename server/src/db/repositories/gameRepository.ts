@@ -1182,3 +1182,51 @@ export function getSteamGridDBSyncStats(): { enriched: number; notEnriched: numb
   `).get() as { enriched: number; notEnriched: number; total: number };
   return result;
 }
+
+/**
+ * Get games with remote screenshots (for downloading locally)
+ * Returns games that have screenshots but haven't been downloaded yet
+ */
+export function getGamesWithScreenshots(): Array<{ id: number; title: string; screenshots: string[] }> {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT id, title, screenshots
+    FROM games
+    WHERE screenshots IS NOT NULL AND screenshots != '[]'
+    ORDER BY title
+  `);
+  const rows = stmt.all() as Array<{ id: number; title: string; screenshots: string }>;
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    screenshots: JSON.parse(row.screenshots) as string[],
+  }));
+}
+
+/**
+ * Get screenshot sync stats
+ */
+export function getScreenshotSyncStats(): { withScreenshots: number; totalScreenshots: number; total: number } {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT screenshots FROM games WHERE screenshots IS NOT NULL AND screenshots != '[]'
+  `).all() as Array<{ screenshots: string }>;
+
+  let totalScreenshots = 0;
+  for (const row of rows) {
+    try {
+      const arr = JSON.parse(row.screenshots) as string[];
+      totalScreenshots += arr.length;
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  const total = db.prepare('SELECT COUNT(*) as count FROM games').get() as { count: number };
+
+  return {
+    withScreenshots: rows.length,
+    totalScreenshots,
+    total: total.count,
+  };
+}

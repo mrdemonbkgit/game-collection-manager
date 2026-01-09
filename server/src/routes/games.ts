@@ -13,6 +13,7 @@ import {
   type GameQueryOptions,
 } from '../db/repositories/gameRepository.js';
 import { getLocalCoverUrl } from '../services/localCoverService.js';
+import { getLocalScreenshotUrls, hasLocalScreenshots } from '../services/localAssetsService.js';
 import {
   getHeroAndLogo,
   getHeroOptions,
@@ -23,6 +24,20 @@ import { fetchSteamReviews } from '../services/steamService.js';
 import { updateGameSteamRating } from '../db/repositories/gameRepository.js';
 
 const router = Router();
+
+/**
+ * Get screenshots for a game - returns local URLs if available, otherwise remote URLs
+ */
+function getScreenshots(gameId: number, remoteScreenshots: string): string[] {
+  if (hasLocalScreenshots(gameId)) {
+    return getLocalScreenshotUrls(gameId);
+  }
+  try {
+    return JSON.parse(remoteScreenshots) as string[];
+  } catch {
+    return [];
+  }
+}
 
 // Sort options configuration
 const SORT_OPTIONS = [
@@ -109,13 +124,13 @@ router.get('/', (req, res) => {
     const platformsMap = getPlatformsForGames(gameIds);
 
     // Parse JSON fields and add platforms for response
-    // Use local covers when available, fallback to remote URL
+    // Use local covers/screenshots when available, fallback to remote URL
     const parsedGames = games.map((game) => {
       const localCover = getLocalCoverUrl(game.id);
       return {
         ...game,
         cover_image_url: localCover || game.cover_image_url,
-        screenshots: JSON.parse(game.screenshots),
+        screenshots: getScreenshots(game.id, game.screenshots),
         genres: JSON.parse(game.genres),
         tags: JSON.parse(game.tags),
         platforms: platformsMap.get(game.id) || [],
@@ -168,12 +183,12 @@ router.get('/slug/:slug', (req, res) => {
       return;
     }
 
-    // Parse JSON fields and use local cover when available
+    // Parse JSON fields and use local cover/screenshots when available
     const localCover = getLocalCoverUrl(game.id);
     const parsedGame = {
       ...game,
       cover_image_url: localCover || game.cover_image_url,
-      screenshots: JSON.parse(game.screenshots),
+      screenshots: getScreenshots(game.id, game.screenshots),
       genres: JSON.parse(game.genres),
       tags: JSON.parse(game.tags),
     };
@@ -345,13 +360,13 @@ router.get('/:id/similar', (req, res) => {
     const gameIds = similarGames.map((g) => g.id);
     const platformsMap = getPlatformsForGames(gameIds);
 
-    // Parse JSON fields and add platforms
+    // Parse JSON fields and add platforms, use local assets when available
     const parsedGames = similarGames.map((g) => {
       const localCover = getLocalCoverUrl(g.id);
       return {
         ...g,
         cover_image_url: localCover || g.cover_image_url,
-        screenshots: JSON.parse(g.screenshots),
+        screenshots: getScreenshots(g.id, g.screenshots),
         genres: JSON.parse(g.genres),
         tags: JSON.parse(g.tags),
         platforms: platformsMap.get(g.id) || [],
@@ -437,12 +452,12 @@ router.get('/:id', (req, res) => {
       return;
     }
 
-    // Parse JSON fields and use local cover when available
+    // Parse JSON fields and use local cover/screenshots when available
     const localCover = getLocalCoverUrl(game.id);
     const parsedGame = {
       ...game,
       cover_image_url: localCover || game.cover_image_url,
-      screenshots: JSON.parse(game.screenshots),
+      screenshots: getScreenshots(game.id, game.screenshots),
       genres: JSON.parse(game.genres),
       tags: JSON.parse(game.tags),
     };

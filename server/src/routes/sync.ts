@@ -13,6 +13,8 @@ import {
   updateIGDBMetadata,
   getGamesWithoutIGDBMetadata,
   getIGDBSyncStats,
+  getGamesWithScreenshots,
+  getScreenshotSyncStats,
 } from '../db/repositories/gameRepository.js';
 import {
   getGameBySteamId,
@@ -68,6 +70,11 @@ import {
   getCacheStats,
   clearCache,
 } from '../services/localCoverService.js';
+import {
+  downloadGameScreenshots,
+  hasLocalScreenshots,
+  getAssetCacheStats,
+} from '../services/localAssetsService.js';
 import { getAllGames } from '../db/repositories/gameRepository.js';
 
 const router = Router();
@@ -1938,6 +1945,213 @@ router.get('/steamgrid/enrich/status', (_req, res) => {
     });
   } catch (error) {
     console.error('Error getting SteamGridDB enrichment status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// =====================
+// Screenshot Sync
+// =====================
+
+// Screenshot sync progress types
+interface ScreenshotSyncProgress {
+  total: number;
+  completed: number;
+  downloaded: number;
+  skipped: number;
+  failed: number;
+  currentGame: string;
+}
+
+interface ScreenshotSyncResult {
+  total: number;
+  downloaded: number;
+  skipped: number;
+  failed: number;
+  screenshotsDownloaded: number;
+}
+
+// Screenshot sync state (in-memory)
+let screenshotSyncState: {
+  inProgress: boolean;
+  progress: ScreenshotSyncProgress | null;
+  result: ScreenshotSyncResult | null;
+  startTime: number | null;
+} = {
+  inProgress: false,
+  progress: null,
+  result: null,
+  startTime: null,
+};
+
+// GET /api/sync/screenshots/count - Get screenshot sync stats
+router.get('/screenshots/count', (_req, res) => {
+  try {
+    const stats = getScreenshotSyncStats();
+    const cacheStats = getAssetCacheStats();
+    res.json({
+      success: true,
+      data: {
+        gamesWithScreenshots: stats.withScreenshots,
+        totalScreenshots: stats.totalScreenshots,
+        totalGames: stats.total,
+        cached: cacheStats.screenshots,
+      },
+    });
+  } catch (error) {
+    console.error('Error getting screenshot count:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// POST /api/sync/screenshots - Download screenshots locally
+router.post('/screenshots', async (_req, res) => {
+  try {
+    if (screenshotSyncState.inProgress) {
+      res.status(409).json({
+        success: false,
+        error: 'Screenshot sync already in progress',
+        progress: screenshotSyncState.progress,
+      });
+      return;
+    }
+
+    const gamesWithScreenshots = getGamesWithScreenshots();
+
+    // Filter to games that don't have local screenshots yet
+    const gamesToSync = gamesWithScreenshots.filter((g) => !hasLocalScreenshots(g.id));
+
+    if (gamesToSync.length === 0) {
+      res.json({
+        success: true,
+        message: 'All screenshots already downloaded',
+        data: { total: 0, downloaded: 0, skipped: gamesWithScreenshots.length, failed: 0 },
+      });
+      return;
+    }
+
+    // Initialize state
+    screenshotSyncState = {
+      inProgress: true,
+      progress: {
+        total: gamesToSync.length,
+        completed: 0,
+        downloaded: 0,
+        skipped: 0,
+        failed: 0,
+        currentGame: '',
+      },
+      result: null,
+      startTime: Date.now(),
+    };
+
+    const totalScreenshots = gamesToSync.reduce((acc, g) => acc + g.screenshots.length, 0);
+    console.log(`[Screenshot Sync] Starting download for ${gamesToSync.length} games (${totalScreenshots} screenshots)...`);
+
+    // Start sync in background
+    (async () => {
+      let downloaded = 0;
+      let skipped = 0;
+      let failed = 0;
+      let screenshotsDownloaded = 0;
+
+      for (const game of gamesToSync) {
+        screenshotSyncState.progress = {
+          ...screenshotSyncState.progress!,
+          currentGame: game.title,
+        };
+
+        try {
+          const result = await downloadGameScreenshots(game.id, game.screenshots);
+          if (result.downloaded > 0) {
+            downloaded++;
+            screenshotsDownloaded += result.downloaded;
+          } else if (result.localUrls.length > 0) {
+            skipped++;
+          } else {
+            failed++;
+          }
+        } catch (error) {
+          console.error(`[Screenshot Sync] Error downloading screenshots for ${game.title}:`, error);
+          failed++;
+        }
+
+        screenshotSyncState.progress = {
+          total: gamesToSync.length,
+          completed: downloaded + skipped + failed,
+          downloaded,
+          skipped,
+          failed,
+          currentGame: game.title,
+        };
+
+        // Log progress every 50 games
+        if ((downloaded + skipped + failed) % 50 === 0) {
+          console.log(
+            `[Screenshot Sync] ${downloaded + skipped + failed}/${gamesToSync.length} - Downloaded: ${downloaded}, Skipped: ${skipped}, Failed: ${failed}`
+          );
+        }
+      }
+
+      screenshotSyncState.inProgress = false;
+      screenshotSyncState.result = {
+        total: gamesToSync.length,
+        downloaded,
+        skipped,
+        failed,
+        screenshotsDownloaded,
+      };
+      console.log(
+        `[Screenshot Sync] Complete: ${downloaded} games (${screenshotsDownloaded} screenshots), ${skipped} skipped, ${failed} failed`
+      );
+    })().catch((error) => {
+      screenshotSyncState.inProgress = false;
+      console.error('[Screenshot Sync] Error:', error);
+    });
+
+    // Return immediately
+    res.json({
+      success: true,
+      message: 'Screenshot sync started',
+      data: {
+        total: gamesToSync.length,
+        totalScreenshots,
+        estimatedMinutes: Math.ceil(totalScreenshots * 0.5 / 60), // ~0.5s per screenshot
+      },
+    });
+  } catch (error) {
+    console.error('Error starting screenshot sync:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/screenshots/status - Get screenshot sync status
+router.get('/screenshots/status', (_req, res) => {
+  try {
+    const elapsedMs = screenshotSyncState.startTime
+      ? Date.now() - screenshotSyncState.startTime
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        inProgress: screenshotSyncState.inProgress,
+        progress: screenshotSyncState.progress,
+        result: screenshotSyncState.result,
+        elapsedSeconds: Math.floor(elapsedMs / 1000),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting screenshot sync status:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

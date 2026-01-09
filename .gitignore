@@ -18,6 +18,8 @@ data/*.db
 server/data/covers/
 server/data/heroes/
 server/data/logos/
+server/data/icons/
+server/data/screenshots/
 
 
 # IDE
