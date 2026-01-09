@@ -9,7 +9,9 @@ vi.mock('../services/gamesService', () => ({
 
 import { fetchGames } from '../services/gamesService';
 
-const mockGame = (id: number) => ({
+import type { Game } from '../types/game';
+
+const mockGame = (id: number): Game => ({
   id,
   title: `Game ${id}`,
   slug: `game-${id}`,
@@ -31,6 +33,62 @@ const mockGame = (id: number) => ({
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   platforms: [],
+  // SteamGridDB assets
+  steamgridId: null,
+  heroUrl: null,
+  logoUrl: null,
+  iconUrl: null,
+  steamgridName: null,
+  steamgridVerified: false,
+  gridsCount: null,
+  heroesCount: null,
+  logosCount: null,
+  iconsCount: null,
+  assetsCheckedAt: null,
+  // IGDB fields
+  igdbId: null,
+  igdbSlug: null,
+  igdbRating: null,
+  igdbRatingCount: null,
+  igdbAggregatedRating: null,
+  igdbAggregatedRatingCount: null,
+  igdbTotalRating: null,
+  storyline: null,
+  themes: [],
+  gameModes: [],
+  playerPerspectives: [],
+  igdbGenres: [],
+  igdbPlatforms: [],
+  igdbSummary: null,
+  igdbMatchConfidence: null,
+  igdbUpdatedAt: null,
+  // Extended Steam fields
+  gameType: null,
+  requiredAge: null,
+  isFree: false,
+  controllerSupport: null,
+  supportedLanguages: null,
+  website: null,
+  backgroundUrl: null,
+  platformSupport: null,
+  pcRequirements: null,
+  macRequirements: null,
+  linuxRequirements: null,
+  movies: null,
+  recommendationsTotal: null,
+  achievementsTotal: null,
+  reviewScore: null,
+  reviewScoreDesc: null,
+  reviewsPositive: null,
+  reviewsNegative: null,
+  priceCurrency: null,
+  priceInitial: null,
+  priceFinal: null,
+  priceDiscountPercent: null,
+  contentDescriptors: null,
+  dlcAppIds: null,
+  lastPlayedAt: null,
+  steamDataUpdatedAt: null,
 });
 
 describe('useGames', () => {

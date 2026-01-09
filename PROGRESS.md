@@ -133,12 +133,22 @@ This file tracks the development progress of the Game Collection Manager app.
 | Screenshots gallery | ✅ Complete |
 | Similar games section | ✅ Complete |
 | SteamGridDB integration for covers/heroes/logos | ✅ Complete |
-| Local asset caching (covers, heroes, logos) | ✅ Complete |
+| Local asset caching (covers, heroes, logos, icons) | ✅ Complete |
 | Cover fix page for manual corrections | ✅ Complete |
 | Hero/Logo predownload (background sync) | ✅ Complete |
 | Pagination for library (replaced infinite scroll) | ✅ Complete |
 | Steam Reviews API integration | ✅ Complete |
+| **Master Data Sync** - Steam/IGDB/SteamGridDB | ✅ Complete |
 | Community catalog import (Game Pass, EA Play, Ubisoft+) | 🔲 Pending |
+
+**Master Data Sync Implementation:**
+- 51 new database columns for comprehensive game metadata
+- SQLite WAL mode + busy_timeout for concurrent access
+- IGDB service with OAuth, Steam ID lookup, title search fallback
+- SteamGridDB enrichment with icon downloads and asset counts
+- SSRF protection (domain allowlist, redirect blocking, size caps)
+- Rate limiting with exponential backoff and Retry-After handling
+- AbortController timeouts on all external API calls
 
 **New Components:**
 - `GameDetailPage` - Full game detail with cinematic hero
@@ -161,6 +171,12 @@ This file tracks the development progress of the Game Collection Manager app.
 - `GET /api/sync/ratings/count` - Count games with/without ratings
 - `POST /api/sync/assets` - Predownload heroes/logos for all games
 - `GET /api/sync/assets/status` - Check asset predownload progress
+- `POST /api/sync/igdb` - Sync IGDB metadata for all games
+- `GET /api/sync/igdb/status` - Check IGDB sync progress
+- `GET /api/sync/igdb/count` - Count games with/without IGDB data
+- `POST /api/sync/steamgrid/enrich` - SteamGridDB enrichment (icons, counts)
+- `GET /api/sync/steamgrid/enrich/status` - Check enrichment progress
+- `GET /api/sync/steamgrid/count` - Count games with/without enrichment
 
 ---
 
@@ -220,7 +236,10 @@ curl -X POST http://localhost:3001/api/sync/steam/quick
 ```
 STEAM_API_KEY=<your-steam-api-key>
 STEAM_USER_ID=<your-steam-id-64>
-GEMINI_API_KEY=<your-gemini-key>  # Phase 4
+STEAMGRIDDB_API_KEY=<your-steamgriddb-key>
+TWITCH_CLIENT_ID=<your-twitch-client-id>      # For IGDB API
+TWITCH_CLIENT_SECRET=<your-twitch-secret>     # For IGDB API
+GEMINI_API_KEY=<your-gemini-key>              # Phase 6
 ```
 
 ---

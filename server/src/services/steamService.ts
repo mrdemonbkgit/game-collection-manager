@@ -21,30 +21,61 @@ interface SteamOwnedGamesResponse {
   };
 }
 
+// Full Steam AppDetails interface with ALL available fields
+interface SteamAppDetailsData {
+  type: string; // game, dlc, demo, mod
+  name: string;
+  steam_appid: number;
+  required_age: number | string;
+  is_free: boolean;
+  controller_support?: 'full' | 'partial';
+  dlc?: number[];
+  detailed_description: string;
+  about_the_game: string;
+  short_description: string;
+  supported_languages?: string; // HTML string
+  header_image: string;
+  capsule_image: string;
+  capsule_imagev5: string;
+  website: string | null;
+  pc_requirements?: { minimum?: string; recommended?: string } | string[];
+  mac_requirements?: { minimum?: string; recommended?: string } | string[];
+  linux_requirements?: { minimum?: string; recommended?: string } | string[];
+  developers?: string[];
+  publishers?: string[];
+  platforms?: { windows: boolean; mac: boolean; linux: boolean };
+  genres?: Array<{ id: string; description: string }>;
+  categories?: Array<{ id: number; description: string }>;
+  screenshots?: Array<{ id: number; path_thumbnail: string; path_full: string }>;
+  movies?: Array<{
+    id: number;
+    name: string;
+    thumbnail: string;
+    webm?: { '480': string; max: string };
+    mp4?: { '480': string; max: string };
+    highlight: boolean;
+  }>;
+  recommendations?: { total: number };
+  achievements?: { total: number; highlighted?: Array<{ name: string; path: string }> };
+  release_date?: { coming_soon: boolean; date: string };
+  background?: string;
+  background_raw?: string;
+  metacritic?: { score: number; url: string };
+  legal_notice?: string;
+  content_descriptors?: { ids: number[]; notes?: string };
+  price_overview?: {
+    currency: string;
+    initial: number;
+    final: number;
+    discount_percent: number;
+    initial_formatted: string;
+    final_formatted: string;
+  };
+}
+
 interface SteamAppDetails {
   success: boolean;
-  data?: {
-    type: string;
-    name: string;
-    steam_appid: number;
-    required_age: number;
-    is_free: boolean;
-    detailed_description: string;
-    about_the_game: string;
-    short_description: string;
-    header_image: string;
-    capsule_image: string;
-    capsule_imagev5: string;
-    website: string | null;
-    developers?: string[];
-    publishers?: string[];
-    genres?: Array<{ id: string; description: string }>;
-    categories?: Array<{ id: number; description: string }>;
-    screenshots?: Array<{ id: number; path_thumbnail: string; path_full: string }>;
-    release_date?: { coming_soon: boolean; date: string };
-    metacritic?: { score: number; url: string };
-    recommendations?: { total: number };
-  };
+  data?: SteamAppDetailsData;
 }
 
 // Steam Reviews API response
@@ -73,9 +104,98 @@ const STEAM_STORE_API = 'https://store.steampowered.com/api';
 
 // Rate limiting for Steam API
 const RATE_LIMIT_DELAY = 1500; // 1.5 seconds between requests
+const REQUEST_TIMEOUT = 30000; // 30 second timeout per request
+const MAX_RETRIES = 3; // Max retry attempts for 429/5xx errors
+const INITIAL_BACKOFF = 2000; // Initial backoff delay in ms
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Fetch with timeout using AbortController
+ */
+async function fetchWithTimeout(url: string, timeoutMs: number = REQUEST_TIMEOUT): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Fetch with exponential backoff retry for 429/5xx errors
+ * Respects Retry-After header when present
+ */
+async function fetchWithRetry(url: string, timeoutMs: number = REQUEST_TIMEOUT): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetchWithTimeout(url, timeoutMs);
+
+      // Success - return response
+      if (response.ok) {
+        return response;
+      }
+
+      // Rate limited - wait and retry
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('Retry-After');
+        let waitTime: number;
+
+        if (retryAfter) {
+          // Retry-After can be seconds or HTTP date
+          const seconds = parseInt(retryAfter, 10);
+          if (!isNaN(seconds)) {
+            waitTime = seconds * 1000;
+          } else {
+            // Parse as HTTP date
+            const retryDate = new Date(retryAfter);
+            waitTime = Math.max(0, retryDate.getTime() - Date.now());
+          }
+        } else {
+          // No Retry-After header, use exponential backoff
+          waitTime = INITIAL_BACKOFF * Math.pow(2, attempt);
+        }
+
+        console.warn(`[Steam] Rate limited (429). Waiting ${Math.round(waitTime / 1000)}s before retry...`);
+        await delay(waitTime);
+        continue;
+      }
+
+      // Server error - retry with backoff
+      if (response.status >= 500) {
+        const waitTime = INITIAL_BACKOFF * Math.pow(2, attempt);
+        console.warn(`[Steam] Server error (${response.status}). Waiting ${Math.round(waitTime / 1000)}s before retry...`);
+        await delay(waitTime);
+        continue;
+      }
+
+      // Client error (4xx except 429) - don't retry
+      return response;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Abort errors shouldn't be retried
+      if (lastError.name === 'AbortError') {
+        console.warn(`[Steam] Request timeout for ${url}`);
+      }
+
+      // Retry on network errors
+      if (attempt < MAX_RETRIES - 1) {
+        const waitTime = INITIAL_BACKOFF * Math.pow(2, attempt);
+        console.warn(`[Steam] Network error, retrying in ${Math.round(waitTime / 1000)}s...`);
+        await delay(waitTime);
+      }
+    }
+  }
+
+  throw lastError || new Error(`Failed to fetch ${url} after ${MAX_RETRIES} retries`);
 }
 
 export async function fetchSteamOwnedGames(
@@ -99,11 +219,11 @@ export async function fetchSteamOwnedGames(
   return data.response.games;
 }
 
-export async function fetchSteamAppDetails(appId: number): Promise<SteamAppDetails['data'] | null> {
+export async function fetchSteamAppDetails(appId: number): Promise<SteamAppDetailsData | null> {
   const url = `${STEAM_STORE_API}/appdetails?appids=${appId}`;
 
   try {
-    const response = await fetch(url);
+    const response = await fetchWithRetry(url);
 
     if (!response.ok) {
       console.warn(`Failed to fetch details for app ${appId}: ${response.status}`);
@@ -127,12 +247,14 @@ export async function fetchSteamAppDetails(appId: number): Promise<SteamAppDetai
 /**
  * Fetch Steam review summary for a game
  * Returns rating percentage and review counts
+ * Uses filter=summary and num_per_page=0 for minimal payload
  */
 export async function fetchSteamReviews(appId: number): Promise<SteamReviewData | null> {
-  const url = `https://store.steampowered.com/appreviews/${appId}?json=1&language=all&purchase_type=all`;
+  // Use filter=summary to get only summary stats, num_per_page=0 to skip individual reviews
+  const url = `https://store.steampowered.com/appreviews/${appId}?json=1&filter=summary&num_per_page=0&language=all&purchase_type=all`;
 
   try {
-    const response = await fetch(url);
+    const response = await fetchWithRetry(url);
 
     if (!response.ok) {
       console.warn(`Failed to fetch reviews for app ${appId}: ${response.status}`);
@@ -269,4 +391,68 @@ export async function quickSyncSteamLibrary(
   onProgress?: SyncProgressCallback
 ): Promise<SyncResult> {
   return syncSteamLibrary(apiKey, steamId, onProgress, false);
+}
+
+// Export SteamAppDetailsData for use in other modules
+export type { SteamAppDetailsData };
+
+/**
+ * Convert Steam App Details API response to SteamMetadataInput format
+ * This helper extracts all extended metadata fields from the Steam API
+ */
+export function convertSteamDetailsToMetadata(details: SteamAppDetailsData): import('../db/repositories/gameRepository.js').SteamMetadataInput {
+  // Extract movie URLs with proper fallbacks
+  const movies = details.movies?.map((m) => ({
+    name: m.name,
+    thumbnail: m.thumbnail,
+    mp4Url: m.mp4?.max || m.mp4?.['480'],
+    webmUrl: m.webm?.max || m.webm?.['480'],
+  })) ?? null;
+
+  // Normalize requirements (can be object or empty array)
+  const normalizeRequirements = (req: { minimum?: string; recommended?: string } | string[] | undefined) => {
+    if (!req) return null;
+    if (Array.isArray(req)) return null; // Empty array means no requirements
+    return req;
+  };
+
+  return {
+    gameType: details.type,
+    requiredAge: typeof details.required_age === 'number' ? details.required_age : parseInt(String(details.required_age), 10) || 0,
+    isFree: details.is_free,
+    controllerSupport: details.controller_support ?? null,
+    supportedLanguages: details.supported_languages ?? null,
+    website: details.website ?? null,
+    backgroundUrl: details.background ?? details.background_raw ?? null,
+    platforms: details.platforms ?? null,
+    pcRequirements: normalizeRequirements(details.pc_requirements),
+    macRequirements: normalizeRequirements(details.mac_requirements),
+    linuxRequirements: normalizeRequirements(details.linux_requirements),
+    movies,
+    recommendationsTotal: details.recommendations?.total ?? null,
+    achievementsTotal: details.achievements?.total ?? null,
+    priceCurrency: details.price_overview?.currency ?? null,
+    priceInitial: details.price_overview?.initial ?? null,
+    priceFinal: details.price_overview?.final ?? null,
+    priceDiscountPercent: details.price_overview?.discount_percent ?? null,
+    contentDescriptors: details.content_descriptors?.ids ?? null,
+    dlcAppIds: details.dlc ?? null,
+  };
+}
+
+/**
+ * Fetch extended Steam metadata for a game
+ * Combines app details + reviews into a single response
+ */
+export async function fetchExtendedSteamMetadata(appId: number): Promise<{
+  details: SteamAppDetailsData | null;
+  reviews: SteamReviewData | null;
+}> {
+  // Fetch both in parallel (slightly faster)
+  const [details, reviews] = await Promise.all([
+    fetchSteamAppDetails(appId),
+    fetchSteamReviews(appId),
+  ]);
+
+  return { details, reviews };
 }

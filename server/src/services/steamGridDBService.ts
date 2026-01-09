@@ -1371,3 +1371,248 @@ export async function predownloadAllAssets(
 
   return result;
 }
+
+// ============================================================
+// STEAMGRIDDB ENRICHMENT
+// ============================================================
+
+import { downloadAllGameAssets } from './localAssetsService.js';
+import {
+  updateSteamGridDBMetadata,
+  getGamesWithoutSteamGridDBEnrichment,
+  getSteamGridDBSyncStats,
+} from '../db/repositories/gameRepository.js';
+
+interface SteamGridDBIcon {
+  id: number;
+  score: number;
+  style: string;
+  width: number;
+  height: number;
+  nsfw: boolean;
+  humor: boolean;
+  mime: string;
+  url: string;
+  thumb: string;
+}
+
+interface IconsResponse {
+  success: boolean;
+  data: SteamGridDBIcon[];
+}
+
+interface GameInfoResponse {
+  success: boolean;
+  data: SteamGridDBGame;
+}
+
+/**
+ * Fetch icons for a game
+ */
+async function fetchIcons(steamGridId: number): Promise<SteamGridDBIcon[]> {
+  try {
+    const apiKey = getApiKey();
+    const url = `${API_BASE}/icons/game/${steamGridId}`;
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return [];
+      }
+      console.warn(`SteamGridDB icons fetch failed: ${response.status}`);
+      return [];
+    }
+
+    const data = (await response.json()) as IconsResponse;
+    return data.success ? data.data : [];
+  } catch (error) {
+    console.warn('Error fetching SteamGridDB icons:', error);
+    return [];
+  }
+}
+
+/**
+ * Get game info (name, verified status) from SteamGridDB
+ */
+async function getGameInfo(steamGridId: number): Promise<SteamGridDBGame | null> {
+  try {
+    const apiKey = getApiKey();
+    const url = `${API_BASE}/games/id/${steamGridId}`;
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null;
+      }
+      console.warn(`SteamGridDB game info fetch failed: ${response.status}`);
+      return null;
+    }
+
+    const data = (await response.json()) as GameInfoResponse;
+    return data.success ? data.data : null;
+  } catch (error) {
+    console.warn('Error fetching SteamGridDB game info:', error);
+    return null;
+  }
+}
+
+/**
+ * Get asset counts for a game (grids, heroes, logos, icons)
+ * Returns counts without downloading actual assets
+ */
+async function getAssetCounts(steamGridId: number): Promise<{
+  grids: number;
+  heroes: number;
+  logos: number;
+  icons: number;
+}> {
+  try {
+    const apiKey = getApiKey();
+
+    // Fetch all endpoints in parallel for efficiency
+    const [gridsRes, heroesRes, logosRes, iconsRes] = await Promise.all([
+      fetch(`${API_BASE}/grids/game/${steamGridId}?dimensions=600x900`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      }),
+      fetch(`${API_BASE}/heroes/game/${steamGridId}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      }),
+      fetch(`${API_BASE}/logos/game/${steamGridId}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      }),
+      fetch(`${API_BASE}/icons/game/${steamGridId}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      }),
+    ]);
+
+    const getCounts = async (response: Response): Promise<number> => {
+      if (!response.ok) return 0;
+      try {
+        const data = await response.json() as { success: boolean; data: Array<{ nsfw?: boolean; humor?: boolean }> };
+        return data.success && Array.isArray(data.data)
+          ? data.data.filter(item => !item.nsfw && !item.humor).length
+          : 0;
+      } catch {
+        return 0;
+      }
+    };
+
+    const [grids, heroes, logos, icons] = await Promise.all([
+      getCounts(gridsRes),
+      getCounts(heroesRes),
+      getCounts(logosRes),
+      getCounts(iconsRes),
+    ]);
+
+    return { grids, heroes, logos, icons };
+  } catch (error) {
+    console.warn('Error fetching SteamGridDB asset counts:', error);
+    return { grids: 0, heroes: 0, logos: 0, icons: 0 };
+  }
+}
+
+/**
+ * Enrichment progress type
+ */
+export interface SteamGridDBEnrichProgress {
+  total: number;
+  current: number;
+  currentGame: string;
+  enriched: number;
+  failed: number;
+}
+
+export interface SteamGridDBEnrichResult {
+  totalGames: number;
+  enriched: number;
+  notFound: number;
+  errors: Array<{ gameId: number; title: string; error: string }>;
+}
+
+/**
+ * Enrich a single game with SteamGridDB data
+ * - Fetches game info (name, verified)
+ * - Fetches asset counts
+ * - Fetches and downloads best icon
+ */
+export async function enrichGameWithSteamGridDB(
+  gameId: number,
+  title: string,
+  steamAppId: number | null,
+  existingSteamgridId: number | null
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // 1. Get or lookup SteamGridDB ID
+    let steamgridId = existingSteamgridId;
+
+    if (!steamgridId && steamAppId) {
+      steamgridId = await getSteamGridIdBySteamAppId(steamAppId);
+      await delay(RATE_LIMIT_DELAY);
+    }
+
+    if (!steamgridId) {
+      const searchResult = await searchGame(title);
+      steamgridId = searchResult?.id || null;
+      await delay(RATE_LIMIT_DELAY);
+    }
+
+    if (!steamgridId) {
+      return { success: false, error: 'Game not found on SteamGridDB' };
+    }
+
+    // 2. Get game info
+    const gameInfo = await getGameInfo(steamgridId);
+    await delay(RATE_LIMIT_DELAY);
+
+    // 3. Get asset counts (parallel requests)
+    const counts = await getAssetCounts(steamgridId);
+    await delay(RATE_LIMIT_DELAY);
+
+    // 4. Get best icon
+    const icons = await fetchIcons(steamgridId);
+    await delay(RATE_LIMIT_DELAY);
+
+    const bestIcon = icons
+      .filter(i => !i.nsfw && !i.humor)
+      .sort((a, b) => b.score - a.score)[0];
+
+    // 5. Download icon if found (using SSRF-protected download)
+    let iconUrl: string | null = null;
+    if (bestIcon?.url) {
+      const assets = await downloadAllGameAssets(gameId, null, null, bestIcon.url);
+      iconUrl = assets.iconLocalUrl || bestIcon.url;
+    }
+
+    // 6. Update database with all metadata
+    updateSteamGridDBMetadata(gameId, {
+      steamgridId,
+      steamgridName: gameInfo?.name || null,
+      steamgridVerified: gameInfo?.verified || false,
+      iconUrl,
+      gridsCount: counts.grids,
+      heroesCount: counts.heroes,
+      logosCount: counts.logos,
+      iconsCount: counts.icons,
+    });
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// Re-export for routes
+export { getGamesWithoutSteamGridDBEnrichment, getSteamGridDBSyncStats };

@@ -10,7 +10,24 @@ import {
   updateGameSteamRating,
   getGamesWithoutRatings,
   getAllSteamGames,
+  updateIGDBMetadata,
+  getGamesWithoutIGDBMetadata,
+  getIGDBSyncStats,
 } from '../db/repositories/gameRepository.js';
+import {
+  getGameBySteamId,
+  searchGameByTitle,
+  convertIGDBGameToMetadata,
+  type IGDBSyncProgress,
+  type IGDBSyncResult,
+} from '../services/igdbService.js';
+import {
+  enrichGameWithSteamGridDB,
+  getGamesWithoutSteamGridDBEnrichment,
+  getSteamGridDBSyncStats,
+  type SteamGridDBEnrichProgress,
+  type SteamGridDBEnrichResult,
+} from '../services/steamGridDBService.js';
 import {
   syncGenresFromSteamSpy,
   type GenreSyncProgress,
@@ -1550,6 +1567,377 @@ router.get('/assets/status', (_req, res) => {
     });
   } catch (error) {
     console.error('Error getting asset predownload status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// ============================================================================
+// IGDB Sync Endpoints
+// ============================================================================
+
+// IGDB sync state (in-memory)
+let igdbSyncState: {
+  inProgress: boolean;
+  progress: IGDBSyncProgress | null;
+  result: IGDBSyncResult | null;
+  startTime: number | null;
+} = {
+  inProgress: false,
+  progress: null,
+  result: null,
+  startTime: null,
+};
+
+// GET /api/sync/igdb/count - Get count of games with/without IGDB data
+router.get('/igdb/count', (_req, res) => {
+  try {
+    const stats = getIGDBSyncStats();
+    res.json({
+      success: true,
+      data: stats,
+    });
+  } catch (error) {
+    console.error('Error getting IGDB sync count:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// POST /api/sync/igdb - Sync IGDB metadata for all games
+router.post('/igdb', async (_req, res) => {
+  try {
+    // Check required credentials
+    if (!process.env.TWITCH_CLIENT_ID || !process.env.TWITCH_CLIENT_SECRET) {
+      res.status(400).json({
+        success: false,
+        error: 'TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET must be configured for IGDB sync',
+      });
+      return;
+    }
+
+    // Check if already in progress
+    if (igdbSyncState.inProgress) {
+      res.status(409).json({
+        success: false,
+        error: 'IGDB sync already in progress',
+        progress: igdbSyncState.progress,
+      });
+      return;
+    }
+
+    // Get games without IGDB metadata
+    const gamesToSync = getGamesWithoutIGDBMetadata();
+
+    if (gamesToSync.length === 0) {
+      res.json({
+        success: true,
+        message: 'All games already have IGDB metadata',
+        data: { totalGames: 0, matched: 0, notFound: 0, errors: [] },
+      });
+      return;
+    }
+
+    // Initialize state
+    igdbSyncState = {
+      inProgress: true,
+      progress: {
+        total: gamesToSync.length,
+        current: 0,
+        currentGame: '',
+        matched: 0,
+        failed: 0,
+      },
+      result: null,
+      startTime: Date.now(),
+    };
+
+    console.log(`[IGDB] Starting sync for ${gamesToSync.length} games...`);
+
+    // Run sync in background
+    (async () => {
+      const result: IGDBSyncResult = {
+        totalGames: gamesToSync.length,
+        matched: 0,
+        notFound: 0,
+        errors: [],
+      };
+
+      for (let i = 0; i < gamesToSync.length; i++) {
+        const game = gamesToSync[i];
+
+        // Update progress
+        igdbSyncState.progress = {
+          total: gamesToSync.length,
+          current: i + 1,
+          currentGame: game.title,
+          matched: result.matched,
+          failed: result.notFound + result.errors.length,
+        };
+
+        try {
+          let igdbResult = null;
+
+          // Try Steam ID lookup first (if available)
+          if (game.steamAppId) {
+            igdbResult = await getGameBySteamId(game.steamAppId);
+          }
+
+          // Fall back to title search
+          if (!igdbResult) {
+            igdbResult = await searchGameByTitle(game.title);
+          }
+
+          if (igdbResult) {
+            const metadata = convertIGDBGameToMetadata(igdbResult.game, igdbResult.confidence);
+            updateIGDBMetadata(game.id, metadata);
+            result.matched++;
+
+            if ((i + 1) % 50 === 0 || i + 1 === gamesToSync.length) {
+              console.log(`[IGDB] Progress: ${i + 1}/${gamesToSync.length} - Matched: ${result.matched}`);
+            }
+          } else {
+            result.notFound++;
+          }
+        } catch (error) {
+          result.errors.push({
+            gameId: game.id,
+            title: game.title,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      }
+
+      igdbSyncState.inProgress = false;
+      igdbSyncState.result = result;
+      console.log(`[IGDB] Sync complete: ${result.matched} matched, ${result.notFound} not found, ${result.errors.length} errors`);
+    })().catch((error) => {
+      igdbSyncState.inProgress = false;
+      console.error('[IGDB] Sync error:', error);
+    });
+
+    // Return immediately
+    res.json({
+      success: true,
+      message: 'IGDB sync started',
+      data: {
+        total: gamesToSync.length,
+        estimatedMinutes: Math.ceil(gamesToSync.length * 0.5 / 60), // ~0.5s per game with rate limiting
+      },
+    });
+  } catch (error) {
+    console.error('Error starting IGDB sync:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/igdb/status - Get IGDB sync status
+router.get('/igdb/status', (_req, res) => {
+  try {
+    const elapsedMs = igdbSyncState.startTime
+      ? Date.now() - igdbSyncState.startTime
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        inProgress: igdbSyncState.inProgress,
+        progress: igdbSyncState.progress,
+        result: igdbSyncState.result,
+        elapsedSeconds: Math.floor(elapsedMs / 1000),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting IGDB sync status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// ============================================================================
+// SteamGridDB Enrichment Endpoints
+// ============================================================================
+
+// SteamGridDB enrichment state (in-memory)
+let steamgridEnrichState: {
+  inProgress: boolean;
+  progress: SteamGridDBEnrichProgress | null;
+  result: SteamGridDBEnrichResult | null;
+  startTime: number | null;
+} = {
+  inProgress: false,
+  progress: null,
+  result: null,
+  startTime: null,
+};
+
+// GET /api/sync/steamgrid/count - Get count of games with/without SteamGridDB enrichment
+router.get('/steamgrid/count', (_req, res) => {
+  try {
+    const stats = getSteamGridDBSyncStats();
+    res.json({
+      success: true,
+      data: stats,
+    });
+  } catch (error) {
+    console.error('Error getting SteamGridDB sync count:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// POST /api/sync/steamgrid/enrich - Enrich all games with SteamGridDB data
+router.post('/steamgrid/enrich', async (_req, res) => {
+  try {
+    // Check API key
+    if (!process.env.STEAMGRIDDB_API_KEY) {
+      res.status(400).json({
+        success: false,
+        error: 'STEAMGRIDDB_API_KEY must be configured for SteamGridDB enrichment',
+      });
+      return;
+    }
+
+    // Check if already in progress
+    if (steamgridEnrichState.inProgress) {
+      res.status(409).json({
+        success: false,
+        error: 'SteamGridDB enrichment already in progress',
+        progress: steamgridEnrichState.progress,
+      });
+      return;
+    }
+
+    // Get games without enrichment
+    const gamesToEnrich = getGamesWithoutSteamGridDBEnrichment();
+
+    if (gamesToEnrich.length === 0) {
+      res.json({
+        success: true,
+        message: 'All games already have SteamGridDB enrichment data',
+        data: { totalGames: 0, enriched: 0, notFound: 0, errors: [] },
+      });
+      return;
+    }
+
+    // Initialize state
+    steamgridEnrichState = {
+      inProgress: true,
+      progress: {
+        total: gamesToEnrich.length,
+        current: 0,
+        currentGame: '',
+        enriched: 0,
+        failed: 0,
+      },
+      result: null,
+      startTime: Date.now(),
+    };
+
+    console.log(`[SteamGridDB] Starting enrichment for ${gamesToEnrich.length} games...`);
+
+    // Run enrichment in background
+    (async () => {
+      const result: SteamGridDBEnrichResult = {
+        totalGames: gamesToEnrich.length,
+        enriched: 0,
+        notFound: 0,
+        errors: [],
+      };
+
+      for (let i = 0; i < gamesToEnrich.length; i++) {
+        const game = gamesToEnrich[i];
+
+        // Update progress
+        steamgridEnrichState.progress = {
+          total: gamesToEnrich.length,
+          current: i + 1,
+          currentGame: game.title,
+          enriched: result.enriched,
+          failed: result.notFound + result.errors.length,
+        };
+
+        try {
+          const enrichResult = await enrichGameWithSteamGridDB(
+            game.id,
+            game.title,
+            game.steamAppId,
+            game.steamgridId
+          );
+
+          if (enrichResult.success) {
+            result.enriched++;
+
+            if ((i + 1) % 50 === 0 || i + 1 === gamesToEnrich.length) {
+              console.log(`[SteamGridDB] Progress: ${i + 1}/${gamesToEnrich.length} - Enriched: ${result.enriched}`);
+            }
+          } else {
+            result.notFound++;
+          }
+        } catch (error) {
+          result.errors.push({
+            gameId: game.id,
+            title: game.title,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      }
+
+      steamgridEnrichState.inProgress = false;
+      steamgridEnrichState.result = result;
+      console.log(`[SteamGridDB] Enrichment complete: ${result.enriched} enriched, ${result.notFound} not found, ${result.errors.length} errors`);
+    })().catch((error) => {
+      steamgridEnrichState.inProgress = false;
+      console.error('[SteamGridDB] Enrichment error:', error);
+    });
+
+    // Return immediately
+    res.json({
+      success: true,
+      message: 'SteamGridDB enrichment started',
+      data: {
+        total: gamesToEnrich.length,
+        estimatedMinutes: Math.ceil(gamesToEnrich.length * 1.5 / 60), // ~1.5s per game (multiple API calls)
+      },
+    });
+  } catch (error) {
+    console.error('Error starting SteamGridDB enrichment:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// GET /api/sync/steamgrid/enrich/status - Get SteamGridDB enrichment status
+router.get('/steamgrid/enrich/status', (_req, res) => {
+  try {
+    const elapsedMs = steamgridEnrichState.startTime
+      ? Date.now() - steamgridEnrichState.startTime
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        inProgress: steamgridEnrichState.inProgress,
+        progress: steamgridEnrichState.progress,
+        result: steamgridEnrichState.result,
+        elapsedSeconds: Math.floor(elapsedMs / 1000),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting SteamGridDB enrichment status:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

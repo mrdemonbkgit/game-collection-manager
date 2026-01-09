@@ -810,3 +810,375 @@ export function getSimilarGames(
 
   return db.prepare(sql).all(...params) as unknown as GameRow[];
 }
+
+// ============================================================================
+// Extended Steam Metadata Types and Functions
+// ============================================================================
+
+/**
+ * Extended Steam metadata input for updating existing games
+ * Uses COALESCE pattern - only provided fields will be updated
+ */
+export interface SteamMetadataInput {
+  // Basic info
+  gameType?: string; // game/dlc/demo/mod
+  requiredAge?: number;
+  isFree?: boolean;
+  controllerSupport?: string | null;
+  supportedLanguages?: string | null;
+
+  // Links
+  website?: string | null;
+  backgroundUrl?: string | null;
+
+  // Platform support (JSON object)
+  platforms?: { windows?: boolean; mac?: boolean; linux?: boolean } | null;
+
+  // Requirements (JSON objects)
+  pcRequirements?: { minimum?: string; recommended?: string } | null;
+  macRequirements?: { minimum?: string; recommended?: string } | null;
+  linuxRequirements?: { minimum?: string; recommended?: string } | null;
+
+  // Media
+  movies?: Array<{ name: string; thumbnail: string; mp4Url?: string; webmUrl?: string }> | null;
+
+  // Stats
+  recommendationsTotal?: number | null;
+  achievementsTotal?: number | null;
+
+  // Reviews (extended)
+  reviewScore?: number | null;
+  reviewScoreDesc?: string | null;
+  reviewsPositive?: number | null;
+  reviewsNegative?: number | null;
+
+  // Pricing
+  priceCurrency?: string | null;
+  priceInitial?: number | null;
+  priceFinal?: number | null;
+  priceDiscountPercent?: number | null;
+
+  // Content
+  contentDescriptors?: number[] | null;
+  dlcAppIds?: number[] | null;
+
+  // Timestamps
+  lastPlayedAt?: string | null;
+}
+
+/**
+ * Update Steam metadata for a game using COALESCE pattern
+ * Only updates fields that are explicitly provided (not undefined)
+ * Preserves existing values for fields not provided
+ */
+export function updateSteamMetadata(steamAppId: number, input: SteamMetadataInput): boolean {
+  const db = getDatabase();
+
+  // Build dynamic SET clause - only include fields that are provided
+  const updates: string[] = [];
+  const params: (string | number | null)[] = [];
+
+  // Helper to add a field update only if the value is provided
+  const addField = (column: string, value: unknown, transform?: (v: unknown) => string | number | null) => {
+    if (value !== undefined) {
+      updates.push(`${column} = ?`);
+      const transformed = transform ? transform(value) : value;
+      params.push(transformed as string | number | null);
+    }
+  };
+
+  // Basic info
+  addField('game_type', input.gameType);
+  addField('required_age', input.requiredAge);
+  addField('is_free', input.isFree, (v) => (v ? 1 : 0));
+  addField('controller_support', input.controllerSupport);
+  addField('supported_languages', input.supportedLanguages);
+
+  // Links
+  addField('website', input.website);
+  addField('background_url', input.backgroundUrl);
+
+  // Platform support
+  addField('platforms', input.platforms, (v) => JSON.stringify(v ?? {}));
+
+  // Requirements
+  addField('pc_requirements', input.pcRequirements, (v) => JSON.stringify(v ?? {}));
+  addField('mac_requirements', input.macRequirements, (v) => JSON.stringify(v ?? {}));
+  addField('linux_requirements', input.linuxRequirements, (v) => JSON.stringify(v ?? {}));
+
+  // Media
+  addField('movies', input.movies, (v) => JSON.stringify(v ?? []));
+
+  // Stats
+  addField('recommendations_total', input.recommendationsTotal);
+  addField('achievements_total', input.achievementsTotal);
+
+  // Reviews
+  addField('review_score', input.reviewScore);
+  addField('review_score_desc', input.reviewScoreDesc);
+  addField('reviews_positive', input.reviewsPositive);
+  addField('reviews_negative', input.reviewsNegative);
+
+  // Pricing
+  addField('price_currency', input.priceCurrency);
+  addField('price_initial', input.priceInitial);
+  addField('price_final', input.priceFinal);
+  addField('price_discount_percent', input.priceDiscountPercent);
+
+  // Content
+  addField('content_descriptors', input.contentDescriptors, (v) => JSON.stringify(v ?? []));
+  addField('dlc_app_ids', input.dlcAppIds, (v) => JSON.stringify(v ?? []));
+
+  // Timestamps
+  addField('last_played_at', input.lastPlayedAt);
+
+  // Always update steam_data_updated_at and updated_at
+  updates.push('steam_data_updated_at = datetime(\'now\')');
+  updates.push('updated_at = datetime(\'now\')');
+
+  if (updates.length === 2) {
+    // Only timestamps, no real updates
+    return false;
+  }
+
+  params.push(steamAppId);
+
+  const sql = `UPDATE games SET ${updates.join(', ')} WHERE steam_app_id = ?`;
+  const result = db.prepare(sql).run(...params);
+
+  return result.changes > 0;
+}
+
+/**
+ * Get games missing extended Steam metadata (for incremental sync)
+ */
+export function getGamesWithoutSteamMetadata(): Array<{ id: number; steamAppId: number; title: string }> {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT id, steam_app_id as steamAppId, title
+    FROM games
+    WHERE steam_app_id IS NOT NULL AND steam_data_updated_at IS NULL
+    ORDER BY title
+  `);
+  return stmt.all() as Array<{ id: number; steamAppId: number; title: string }>;
+}
+
+// ============================================================================
+// IGDB Metadata Functions
+// ============================================================================
+
+/**
+ * IGDB metadata input type - matches IGDBMetadataInput from igdbService
+ */
+export interface IGDBMetadataInput {
+  igdbId: number;
+  igdbSlug: string | null;
+  igdbRating: number | null;
+  igdbRatingCount: number | null;
+  igdbAggregatedRating: number | null;
+  igdbAggregatedRatingCount: number | null;
+  igdbTotalRating: number | null;
+  storyline: string | null;
+  themes: string[];
+  gameModes: string[];
+  playerPerspectives: string[];
+  igdbGenres: string[];
+  igdbPlatforms: string[];
+  igdbSummary: string | null;
+  igdbMatchConfidence: number | null;
+}
+
+/**
+ * Update IGDB metadata for a game
+ * Uses COALESCE pattern - only updates fields that are provided and non-null
+ */
+export function updateIGDBMetadata(gameId: number, input: IGDBMetadataInput): boolean {
+  const db = getDatabase();
+  const updates: string[] = [];
+  const params: (string | number | null)[] = [];
+
+  // Helper to add field only if provided (not undefined)
+  const addField = (column: string, value: unknown, transform?: (v: unknown) => string | number | null) => {
+    if (value !== undefined) {
+      updates.push(`${column} = ?`);
+      const transformed = transform ? transform(value) : value;
+      params.push(transformed as string | number | null);
+    }
+  };
+
+  // IGDB identifiers (always update these)
+  addField('igdb_id', input.igdbId);
+  addField('igdb_slug', input.igdbSlug);
+  addField('igdb_match_confidence', input.igdbMatchConfidence);
+
+  // Ratings
+  addField('igdb_rating', input.igdbRating);
+  addField('igdb_rating_count', input.igdbRatingCount);
+  addField('igdb_aggregated_rating', input.igdbAggregatedRating);
+  addField('igdb_aggregated_rating_count', input.igdbAggregatedRatingCount);
+  addField('igdb_total_rating', input.igdbTotalRating);
+
+  // Content
+  addField('storyline', input.storyline);
+  addField('igdb_summary', input.igdbSummary);
+
+  // Arrays (stored as JSON)
+  addField('themes', input.themes, (v) => JSON.stringify(v ?? []));
+  addField('game_modes', input.gameModes, (v) => JSON.stringify(v ?? []));
+  addField('player_perspectives', input.playerPerspectives, (v) => JSON.stringify(v ?? []));
+  addField('igdb_genres', input.igdbGenres, (v) => JSON.stringify(v ?? []));
+  addField('igdb_platforms', input.igdbPlatforms, (v) => JSON.stringify(v ?? []));
+
+  // Always update timestamps
+  updates.push('igdb_updated_at = datetime(\'now\')');
+  updates.push('updated_at = datetime(\'now\')');
+
+  if (updates.length === 2) {
+    // Only timestamps, no real updates
+    return false;
+  }
+
+  params.push(gameId);
+
+  const sql = `UPDATE games SET ${updates.join(', ')} WHERE id = ?`;
+  const result = db.prepare(sql).run(...params);
+
+  return result.changes > 0;
+}
+
+/**
+ * Get games missing IGDB metadata (for sync)
+ * Returns games that don't have an IGDB ID yet
+ */
+export function getGamesWithoutIGDBMetadata(): Array<{ id: number; steamAppId: number | null; title: string }> {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT id, steam_app_id as steamAppId, title
+    FROM games
+    WHERE igdb_id IS NULL
+    ORDER BY title
+  `);
+  return stmt.all() as Array<{ id: number; steamAppId: number | null; title: string }>;
+}
+
+/**
+ * Get games with IGDB ID for re-sync
+ */
+export function getGamesWithIGDBMetadata(): Array<{ id: number; igdbId: number; title: string }> {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT id, igdb_id as igdbId, title
+    FROM games
+    WHERE igdb_id IS NOT NULL
+    ORDER BY title
+  `);
+  return stmt.all() as Array<{ id: number; igdbId: number; title: string }>;
+}
+
+/**
+ * Get count of games with/without IGDB data
+ */
+export function getIGDBSyncStats(): { withIGDB: number; withoutIGDB: number; total: number } {
+  const db = getDatabase();
+  const result = db.prepare(`
+    SELECT
+      COUNT(CASE WHEN igdb_id IS NOT NULL THEN 1 END) as withIGDB,
+      COUNT(CASE WHEN igdb_id IS NULL THEN 1 END) as withoutIGDB,
+      COUNT(*) as total
+    FROM games
+  `).get() as { withIGDB: number; withoutIGDB: number; total: number };
+  return result;
+}
+
+// ============================================================================
+// SteamGridDB Metadata Functions
+// ============================================================================
+
+/**
+ * SteamGridDB metadata input type for enrichment
+ */
+export interface SteamGridDBMetadataInput {
+  steamgridId?: number;
+  steamgridName?: string | null;
+  steamgridVerified?: boolean;
+  iconUrl?: string | null;
+  gridsCount?: number | null;
+  heroesCount?: number | null;
+  logosCount?: number | null;
+  iconsCount?: number | null;
+}
+
+/**
+ * Update SteamGridDB metadata for a game
+ */
+export function updateSteamGridDBMetadata(gameId: number, input: SteamGridDBMetadataInput): boolean {
+  const db = getDatabase();
+  const updates: string[] = [];
+  const params: (string | number | null)[] = [];
+
+  const addField = (column: string, value: unknown, transform?: (v: unknown) => string | number | null) => {
+    if (value !== undefined) {
+      updates.push(`${column} = ?`);
+      const transformed = transform ? transform(value) : value;
+      params.push(transformed as string | number | null);
+    }
+  };
+
+  // SteamGridDB identifiers
+  addField('steamgrid_id', input.steamgridId);
+  addField('steamgrid_name', input.steamgridName);
+  addField('steamgrid_verified', input.steamgridVerified, (v) => v ? 1 : 0);
+
+  // Icon
+  addField('icon_url', input.iconUrl);
+
+  // Asset counts
+  addField('grids_count', input.gridsCount);
+  addField('heroes_count', input.heroesCount);
+  addField('logos_count', input.logosCount);
+  addField('icons_count', input.iconsCount);
+
+  // Always update timestamps
+  updates.push('assets_checked_at = datetime(\'now\')');
+  updates.push('updated_at = datetime(\'now\')');
+
+  if (updates.length === 2) {
+    return false;
+  }
+
+  params.push(gameId);
+
+  const sql = `UPDATE games SET ${updates.join(', ')} WHERE id = ?`;
+  const result = db.prepare(sql).run(...params);
+
+  return result.changes > 0;
+}
+
+/**
+ * Get games missing SteamGridDB enrichment (for sync)
+ */
+export function getGamesWithoutSteamGridDBEnrichment(): Array<{ id: number; steamAppId: number | null; steamgridId: number | null; title: string }> {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT id, steam_app_id as steamAppId, steamgrid_id as steamgridId, title
+    FROM games
+    WHERE grids_count IS NULL
+    ORDER BY title
+  `);
+  return stmt.all() as Array<{ id: number; steamAppId: number | null; steamgridId: number | null; title: string }>;
+}
+
+/**
+ * Get SteamGridDB sync stats
+ */
+export function getSteamGridDBSyncStats(): { enriched: number; notEnriched: number; total: number } {
+  const db = getDatabase();
+  const result = db.prepare(`
+    SELECT
+      COUNT(CASE WHEN grids_count IS NOT NULL THEN 1 END) as enriched,
+      COUNT(CASE WHEN grids_count IS NULL THEN 1 END) as notEnriched,
+      COUNT(*) as total
+    FROM games
+  `).get() as { enriched: number; notEnriched: number; total: number };
+  return result;
+}
